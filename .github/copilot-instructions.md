@@ -32,3 +32,6 @@ This repo uses the Full Stack FastAPI Template. Do not change the project struct
 - Before adding libraries, check if the template already covers the need.
 
 See docs/project-spec.md for the detailed product contract; treat it as the source of truth.
+
+
+> Current focus: build core backend routes step-by-step; avoid UI/styling changes unless asked. See docs/project-spec.md (Update 2025-10-25).

@@ -66,3 +66,34 @@ Xenlixai ingests a website URL, analyzes visible content and metadata, produces 
 - Do NOT restructure the template folders (backend/, frontend/, docker compose files).
 - Add new feature code under the existing app/ modules and frontend src/ routes/components.
 - All changes must reference this spec. If something isn’t covered, ask before changing structure.
+
+---
+
+## Update (2025-10-25)
+
+Project name: XenlixAI — AEO (Answer Engine Optimization) + GEO (Local SEO)
+
+Vision:
+Users enter a website URL → system scans the site → shows an AEO/GEO summary preview (content quality, structured data, E‑E‑A‑T signals, local SEO info). Then users can upgrade via Stripe Checkout to unlock a premium dashboard with detailed analytics, competitor insights, and recommendations.
+
+Tech stack (fixed):
+- Backend: FastAPI + SQLModel + Postgres + Docker
+- Frontend: React 19 + Vite + Chakra UI + TanStack Router + React Query
+- Crawler options: Firecrawl API (optional) OR local extractor (trafilatura + extruct)
+- Auth: premium gating (free → paywall → premium dashboard)
+
+Current focus (no UI or styling):
+- Build core backend routes step-by-step starting from the template.
+- Keep existing structure (backend/, frontend/, docker compose files).
+
+Scope alignment:
+- Preview (free): title, headings, meta, AEO/GEO heuristics (basic), high-level E‑E‑A‑T signals.
+- Premium: detailed analytics, competitor insights, prioritized recommendations.
+
+Next backend tasks (high-level):
+1) Harden /api/v1/analyze: user-agent, robots.txt check (best-effort), timeouts, size caps.
+2) Add minimal SQLModel models (Site, Snapshot) and persist snapshots (optional for MVP).
+3) Payments: /api/v1/payments/checkout and /api/v1/webhooks/stripe with premium flag.
+4) Auth gating in backend responses (expose extra fields only if premium).
+
+Note: Do not change the project structure. All significant changes must reference this spec.
