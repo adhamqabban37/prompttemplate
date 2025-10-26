@@ -55,7 +55,7 @@ function Dashboard() {
     queryKey: ["scan", scanUrl],
     queryFn: async () => {
       if (!scanUrl) throw new Error("No URL provided");
-      const response = await fetch("http://localhost:8000/api/v1/scan", {
+      const response = await fetch("http://localhost:8000/api/v1/scan/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: scanUrl }),
