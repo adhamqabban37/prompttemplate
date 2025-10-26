@@ -7,8 +7,8 @@ import requests
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 import logging
-from backend.app.services.lighthouse import fetch_psi
-from backend.app.services.crewai_reasoner import generate_recommendations
+from app.services.lighthouse import fetch_psi
+from app.services.crewai_reasoner import generate_recommendations
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/scan", tags=["scan"])
