@@ -1,23 +1,38 @@
-import { Box, Container, Text } from "@chakra-ui/react"
-import { createFileRoute } from "@tanstack/react-router"
-
-import useAuth from "@/hooks/useAuth"
+import { Box, Container, Heading, Input, Button, Stack } from "@chakra-ui/react";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
 
 export const Route = createFileRoute("/_layout/")({
-  component: Dashboard,
-})
+  component: Home,
+});
 
-function Dashboard() {
-  const { user: currentUser } = useAuth()
+function Home() {
+  const navigate = useNavigate();
+  const [url, setUrl] = useState("");
+
+  const onSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!url) return;
+    navigate({ to: "/dashboard", search: { url } });
+  };
 
   return (
-    <Container maxW="full">
-      <Box pt={12} m={4}>
-        <Text fontSize="2xl" truncate maxW="sm">
-          Hi, {currentUser?.full_name || currentUser?.email} 👋🏼
-        </Text>
-        <Text>Welcome back, nice to see you again!</Text>
-      </Box>
+    <Container maxW="lg" py={16}>
+      <Stack spacing={6}>
+        <Heading size="lg">Xenlixai</Heading>
+        <Box as="form" onSubmit={onSubmit}>
+          <Stack direction={{ base: "column", md: "row" }} spacing={3}>
+            <Input
+              placeholder="Enter your website URL (https://example.com)"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+            />
+            <Button type="submit" colorScheme="blue">
+              Analyze
+            </Button>
+          </Stack>
+        </Box>
+      </Stack>
     </Container>
-  )
+  );
 }
