@@ -9,6 +9,8 @@ from pydantic import BaseModel
 import logging
 from app.services.lighthouse import fetch_psi
 from app.services.crewai_reasoner import generate_recommendations
+from app.services.rules_loader import get_rules
+from app.services.check_engine import evaluate_rules
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/scan", tags=["scan"])
@@ -287,7 +289,15 @@ def scan_url(payload: ScanRequest) -> ScanResponse:
         "metadata_summary": scan_dict.get("metadata_summary", {}),
     }
 
-    insights = generate_recommendations(scan_payload_subset, lighthouse)
+    # Generate insights only if extraction succeeded; otherwise return a friendly placeholder
+    if result.error:
+        insights = {
+            "visibility_score_explainer": "AI insights unavailable due to extraction error.",
+            "top_findings": [],
+            "recommendations": [],
+        }
+    else:
+        insights = generate_recommendations(scan_payload_subset, lighthouse)
 
     # Compute a simple visibility score and signals
     signals: List[str] = []
@@ -303,7 +313,16 @@ def scan_url(payload: ScanRequest) -> ScanResponse:
         score += 10
         signals.append("Good SEO")
     # LocalBusiness / FAQ schema checks
-    md = scan_payload_subset.get("metadata_summary", {}) or {}
+    # Coerce metadata_summary to dict for safe access
+    _ms = scan_payload_subset.get("metadata_summary") or {}
+    if hasattr(_ms, "model_dump"):
+        md = _ms.model_dump()
+    elif hasattr(_ms, "dict"):
+        md = _ms.dict()
+    elif isinstance(_ms, dict):
+        md = _ms
+    else:
+        md = {}
     if md.get("json_ld_count", 0) > 0:
         # look for LocalBusiness/FAQ in schemas
         schemas = scan_payload_subset.get("schemas", [])
@@ -333,5 +352,49 @@ def scan_url(payload: ScanRequest) -> ScanResponse:
     result.lighthouse = lighthouse
     result.visibility = visibility
     result.insights = insights
+
+    # Rules engine: evaluate YAML-driven checks and merge
+    try:
+        rules, last_mtime = get_rules()
+        eval_out = evaluate_rules({"scan": scan_dict, "lighthouse": lighthouse}, rules)
+
+        # Merge signals (dedup)
+        rule_signals = eval_out.get("signals", [])
+        if isinstance(result.visibility, dict):
+            existing = set(result.visibility.get("signals", []))
+            merged = list(existing.union(rule_signals))
+            result.visibility["signals"] = merged
+
+        # Adjust score with clamp (-30..+30) and cap 0..100
+        delta = int(eval_out.get("score_delta", 0))
+        if delta > 30:
+            delta = 30
+        if delta < -30:
+            delta = -30
+        if isinstance(result.visibility, dict):
+            new_score = int(result.visibility.get("score", 0)) + delta
+            if new_score > 100:
+                new_score = 100
+            if new_score < 0:
+                new_score = 0
+            result.visibility["score"] = new_score
+
+        # Merge recommendations
+        rule_recs = eval_out.get("recommendations", [])
+        if not isinstance(result.insights, dict):
+            result.insights = {}
+        rec_list = result.insights.get("recommendations", []) if isinstance(result.insights, dict) else []
+        # Deduplicate by rule_id+title
+        seen = {f"{r.get('rule_id')}::{r.get('title')}" for r in rec_list if isinstance(r, dict)}
+        for r in rule_recs:
+            key = f"{r.get('rule_id')}::{r.get('title')}"
+            if key not in seen:
+                rec_list.append(r)
+                seen.add(key)
+        if isinstance(result.insights, dict):
+            result.insights["recommendations"] = rec_list
+    except Exception as e:
+        # Non-fatal: keep response usable even if rules fail
+        logger.warning(f"Rules evaluation failed: {e}")
 
     return result

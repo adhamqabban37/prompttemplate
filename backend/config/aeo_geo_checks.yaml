@@ -1,0 +1,66 @@
+rules:
+  - id: schema_faq_missing
+    title: "FAQ schema missing"
+    category: "schema"
+    severity: 3
+    when:
+      - "length(scan.metadata_summary.json_ld_count) >= `0`"
+    unless:
+      - "scan.schemas[?@.`@type`=='FAQPage'] | length(@) > `0`"
+    details: "No FAQPage JSON-LD detected."
+    recommendation: "Add FAQPage JSON-LD and on-page FAQ with 5–10 Q&As targeting long-tail queries."
+    score_impact: 8
+
+  - id: schema_localbusiness_present
+    title: "LocalBusiness schema present"
+    category: "geo"
+    severity: 4
+    when:
+      - "scan.schemas[?contains(join(',', to_string(@.`@type`)), 'LocalBusiness')] | length(@) > `0`"
+    details: "Detected LocalBusiness structured data."
+    recommendation: "Verify NAP, geo coordinates, openingHours, sameAs links, and review snippets are present."
+    score_impact: 6
+
+  - id: nap_footer_missing
+    title: "Visible NAP footer missing"
+    category: "geo"
+    severity: 4
+    when:
+      - "length(scan.text_preview) > `0`"
+    unless:
+      - "contains(to_string(scan.text_preview), 'Suite') || contains(to_string(scan.text_preview), 'St ') || contains(to_string(scan.text_preview), 'Ave ') || contains(to_string(scan.text_preview), 'Blvd')"
+    details: "Couldn’t detect address-like patterns in page text preview."
+    recommendation: "Add a visible footer block with Name, Address, Phone (NAP) and link to Google Business Profile."
+    score_impact: 6
+
+  - id: performance_lcp_fast
+    title: "Good LCP (< 2.5s)"
+    category: "performance"
+    severity: 3
+    when:
+      - "lighthouse.available == `true`"
+      - "lighthouse.web_vitals.lcp_ms < `2500`"
+    details: "LCP measured at {lcp_ms} ms."
+    recommendation: "Maintain current media optimizations and lazy-loading."
+    score_impact: 5
+
+  - id: performance_lcp_slow
+    title: "Slow LCP (> 2.5s)"
+    category: "performance"
+    severity: 5
+    when:
+      - "lighthouse.available == `true`"
+      - "lighthouse.web_vitals.lcp_ms >= `2500`"
+    details: "LCP measured at {lcp_ms} ms."
+    recommendation: "Compress hero image, use responsive <img>, lazy-load below-the-fold, preconnect CDN; target < 2.5s."
+    score_impact: -8
+
+  - id: seo_title_missing
+    title: "Title tag missing or empty"
+    category: "content"
+    severity: 4
+    when:
+      - "to_string(scan.title) == '' || scan.title == `null`"
+    details: "No <title> detected."
+    recommendation: "Add a concise, intent-focused title (<60 chars) with primary keyword and locality."
+    score_impact: -6
