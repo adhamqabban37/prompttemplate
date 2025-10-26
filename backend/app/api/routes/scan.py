@@ -7,6 +7,8 @@ import requests
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 import logging
+from backend.app.services.lighthouse import fetch_psi
+from backend.app.services.crewai_reasoner import generate_recommendations
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/scan", tags=["scan"])
@@ -30,6 +32,10 @@ class ScanResponse(BaseModel):
     schemas: List[Dict[str, Any]] = []
     metadata_summary: MetadataSummary
     error: Optional[str] = None
+    # New optional fields populated by Lighthouse + CrewAI
+    lighthouse: Optional[Dict[str, Any]] = None
+    visibility: Optional[Dict[str, Any]] = None
+    insights: Optional[Dict[str, Any]] = None
 
 
 def extract_local(url: str) -> ScanResponse:
@@ -260,5 +266,72 @@ def scan_url(payload: ScanRequest) -> ScanResponse:
     if result.error and os.getenv("FIRECRAWL_API_KEY"):
         logger.info(f"Local extraction failed for {url}, trying Firecrawl...")
         result = extract_firecrawl(url)
+
+    # Convert ScanResponse -> dict for augmentation
+    scan_dict = result.model_dump() if hasattr(result, "model_dump") else result.__dict__
+
+    # Fetch Lighthouse (PSI) results (may return available=False)
+    try:
+        lighthouse = fetch_psi(url)
+    except Exception as e:
+        logger.warning(f"Lighthouse fetch failed: {e}")
+        lighthouse = {"source": "psi", "available": False, "error": str(e)}
+
+    # Prepare lightweight scan payload subset for CrewAI
+    scan_payload_subset = {
+        "url": url,
+        "title": scan_dict.get("title"),
+        "description": scan_dict.get("description"),
+        "text_preview": scan_dict.get("text_preview"),
+        "schemas": scan_dict.get("schemas", []),
+        "metadata_summary": scan_dict.get("metadata_summary", {}),
+    }
+
+    insights = generate_recommendations(scan_payload_subset, lighthouse)
+
+    # Compute a simple visibility score and signals
+    signals: List[str] = []
+    score = 50
+    perf = lighthouse.get("performance") if isinstance(lighthouse, dict) else None
+    seo = lighthouse.get("seo") if isinstance(lighthouse, dict) else None
+    webv = lighthouse.get("web_vitals", {}) if isinstance(lighthouse, dict) else {}
+
+    if perf is not None and perf >= 75:
+        score += 10
+        signals.append("Good performance")
+    if seo is not None and seo >= 80:
+        score += 10
+        signals.append("Good SEO")
+    # LocalBusiness / FAQ schema checks
+    md = scan_payload_subset.get("metadata_summary", {}) or {}
+    if md.get("json_ld_count", 0) > 0:
+        # look for LocalBusiness/FAQ in schemas
+        schemas = scan_payload_subset.get("schemas", [])
+        found_local = any("LocalBusiness" in str(s.get("data", "")) for s in schemas)
+        found_faq = any("FAQPage" in str(s.get("data", "")) or "Question" in str(s.get("data", "")) for s in schemas)
+        if found_local:
+            score += 10
+            signals.append("LocalBusiness schema present")
+        if found_faq:
+            score += 10
+            signals.append("FAQ schema present")
+
+    lcp = webv.get("lcp_ms")
+    if lcp is not None and lcp < 2500:
+        score += 10
+        signals.append("Good LCP")
+
+    # Cap score
+    if score > 100:
+        score = 100
+    if score < 0:
+        score = 0
+
+    visibility = {"score": score, "signals": signals}
+
+    # Attach augmented fields to response
+    result.lighthouse = lighthouse
+    result.visibility = visibility
+    result.insights = insights
 
     return result
