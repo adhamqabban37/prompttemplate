@@ -6,7 +6,9 @@ from typing import Any, Dict, List, Optional
 import requests
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+import logging
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/scan", tags=["scan"])
 
 
@@ -27,98 +29,185 @@ class ScanResponse(BaseModel):
     text_preview: Optional[str] = None
     schemas: List[Dict[str, Any]] = []
     metadata_summary: MetadataSummary
+    error: Optional[str] = None
 
 
 def extract_local(url: str) -> ScanResponse:
     """
     Download HTML and extract metadata using requests + trafilatura + extruct.
+    Returns proper error messages for timeout, SSL, DNS, and HTTP errors.
     """
     try:
         import trafilatura
         import extruct
         from w3lib.html import get_base_url
     except ImportError as e:
-        raise HTTPException(status_code=500, detail=f"Missing library: {e}")
+        logger.error(f"Missing library: {e}")
+        return ScanResponse(
+            url=url,
+            error=f"Server configuration error: Missing library {e}",
+            metadata_summary=MetadataSummary(),
+        )
 
+    # Robust request headers to avoid bot blocking
     headers = {
-        "User-Agent": "XenlixAI/1.0 (+https://xenlixai.com)",
-        "Accept": "text/html,application/xhtml+xml",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 XenlixAI/1.0",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "DNT": "1",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
     }
+
     try:
-        resp = requests.get(url, headers=headers, timeout=10, allow_redirects=True)
+        resp = requests.get(
+            url,
+            headers=headers,
+            timeout=15,  # Increased timeout
+            allow_redirects=True,
+            verify=True,  # SSL verification enabled
+        )
         resp.raise_for_status()
-    except requests.RequestException as e:
-        raise HTTPException(status_code=502, detail=f"Failed to fetch URL: {e}")
+    except requests.exceptions.Timeout:
+        logger.warning(f"Timeout fetching {url}")
+        return ScanResponse(
+            url=url,
+            error="Request timeout - website took too long to respond",
+            metadata_summary=MetadataSummary(),
+        )
+    except requests.exceptions.SSLError as e:
+        logger.warning(f"SSL error fetching {url}: {e}")
+        return ScanResponse(
+            url=url,
+            error="SSL certificate error - website may have invalid HTTPS configuration",
+            metadata_summary=MetadataSummary(),
+        )
+    except requests.exceptions.ConnectionError as e:
+        logger.warning(f"Connection error fetching {url}: {e}")
+        return ScanResponse(
+            url=url,
+            error="Connection error - website may be down or DNS failed",
+            metadata_summary=MetadataSummary(),
+        )
+    except requests.exceptions.HTTPError as e:
+        logger.warning(f"HTTP error fetching {url}: {e}")
+        status_code = e.response.status_code if e.response else 0
+        if status_code == 403:
+            return ScanResponse(
+                url=url,
+                error="Access forbidden (403) - website blocked our scan request",
+                metadata_summary=MetadataSummary(),
+            )
+        elif status_code == 404:
+            return ScanResponse(
+                url=url,
+                error="Page not found (404) - URL does not exist",
+                metadata_summary=MetadataSummary(),
+            )
+        else:
+            return ScanResponse(
+                url=url,
+                error=f"HTTP error {status_code} - website returned an error",
+                metadata_summary=MetadataSummary(),
+            )
+    except Exception as e:
+        logger.error(f"Unexpected error fetching {url}: {e}")
+        return ScanResponse(
+            url=url,
+            error=f"Unexpected error: {str(e)}",
+            metadata_summary=MetadataSummary(),
+        )
 
     html = resp.text
     base_url = get_base_url(html, url)
 
-    # Extract readable text
-    text = trafilatura.extract(html, output_format="txt", include_comments=False) or ""
-    text_preview = text[:500] if text else None
+    try:
+        # Extract readable text
+        text = trafilatura.extract(html, output_format="txt", include_comments=False) or ""
+        text_preview = text[:500] if text else None
 
-    # Extract metadata
-    metadata = extruct.extract(
-        html,
-        base_url=base_url,
-        syntaxes=["json-ld", "microdata", "opengraph"],
-    )
+        # Extract metadata
+        metadata = extruct.extract(
+            html,
+            base_url=base_url,
+            syntaxes=["json-ld", "microdata", "opengraph"],
+        )
 
-    # Build schemas list and counts
-    schemas: List[Dict[str, Any]] = []
-    json_ld_items = metadata.get("json-ld", [])
-    microdata_items = metadata.get("microdata", [])
-    opengraph_items = metadata.get("opengraph", [])
+        # Build schemas list and counts
+        schemas: List[Dict[str, Any]] = []
+        json_ld_items = metadata.get("json-ld", [])
+        microdata_items = metadata.get("microdata", [])
+        opengraph_items = metadata.get("opengraph", [])
 
-    for item in json_ld_items:
-        schemas.append({"type": "json-ld", "data": item})
-    for item in microdata_items:
-        schemas.append({"type": "microdata", "data": item})
-    for item in opengraph_items:
-        schemas.append({"type": "opengraph", "data": item})
+        for item in json_ld_items:
+            schemas.append({"type": "json-ld", "data": item})
+        for item in microdata_items:
+            schemas.append({"type": "microdata", "data": item})
+        for item in opengraph_items:
+            schemas.append({"type": "opengraph", "data": item})
 
-    summary = MetadataSummary(
-        json_ld_count=len(json_ld_items),
-        microdata_count=len(microdata_items),
-        opengraph_count=len(opengraph_items),
-    )
+        summary = MetadataSummary(
+            json_ld_count=len(json_ld_items),
+            microdata_count=len(microdata_items),
+            opengraph_count=len(opengraph_items),
+        )
 
-    # Extract title and description from OpenGraph if available
-    title = None
-    description = None
-    for og in opengraph_items:
-        if not title and "og:title" in og:
-            title = og["og:title"]
-        if not description and "og:description" in og:
-            description = og["og:description"]
+        # Extract title and description from OpenGraph if available
+        title = None
+        description = None
+        for og in opengraph_items:
+            if not title:
+                # Handle both dict and list formats for OG properties
+                if isinstance(og, dict):
+                    title = og.get("og:title") or og.get("properties", {}).get("og:title")
+                    if isinstance(title, list) and title:
+                        title = title[0]
+            if not description:
+                if isinstance(og, dict):
+                    description = og.get("og:description") or og.get("properties", {}).get("og:description")
+                    if isinstance(description, list) and description:
+                        description = description[0]
 
-    # Fallback: extract title from HTML
-    if not title:
-        import re
-        title_match = re.search(r"<title[^>]*>(.*?)</title>", html, re.I | re.S)
-        if title_match:
-            title = re.sub(r"<[^>]+>", "", title_match.group(1)).strip()
+        # Fallback: extract title from HTML
+        if not title:
+            import re
+            title_match = re.search(r"<title[^>]*>(.*?)</title>", html, re.I | re.S)
+            if title_match:
+                title = re.sub(r"<[^>]+>", "", title_match.group(1)).strip()
 
-    return ScanResponse(
-        url=url,
-        title=title,
-        description=description,
-        text_preview=text_preview,
-        schemas=schemas,
-        metadata_summary=summary,
-    )
+        return ScanResponse(
+            url=url,
+            title=title,
+            description=description,
+            text_preview=text_preview,
+            schemas=schemas,
+            metadata_summary=summary,
+        )
+    except Exception as e:
+        logger.error(f"Error extracting metadata from {url}: {e}")
+        return ScanResponse(
+            url=url,
+            error=f"Extraction error: {str(e)}",
+            metadata_summary=MetadataSummary(),
+        )
 
 
 def extract_firecrawl(url: str) -> ScanResponse:
     """
-    Use Firecrawl API to scrape and extract metadata.
+    Use Firecrawl API to scrape and extract metadata (optional fallback).
     """
-    api_key = os.environ.get("FIRECRAWL_API_KEY")
+    api_key = os.getenv("FIRECRAWL_API_KEY")
     if not api_key:
-        raise HTTPException(status_code=500, detail="FIRECRAWL_API_KEY not configured")
+        logger.warning("FIRECRAWL_API_KEY not set")
+        return ScanResponse(
+            url=url,
+            error="Firecrawl API key not configured",
+            metadata_summary=MetadataSummary(),
+        )
 
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    payload = {"url": url, "formats": ["markdown", "html"]}
+    headers = {"Authorization": f"Bearer {api_key}"}
+    payload = {"url": url, "formats": ["markdown", "html", "extract"]}
 
     try:
         resp = requests.post(
@@ -129,31 +218,22 @@ def extract_firecrawl(url: str) -> ScanResponse:
         )
         resp.raise_for_status()
         data = resp.json()
-    except requests.RequestException as e:
-        raise HTTPException(status_code=502, detail=f"Firecrawl API error: {e}")
 
-    # Parse Firecrawl response (adapt as needed)
-    result = data.get("data", {})
-    markdown_text = result.get("markdown", "")
-    html_content = result.get("html", "")
-    meta = result.get("metadata", {})
-
-    text_preview = markdown_text[:500] if markdown_text else None
-    title = meta.get("title")
-    description = meta.get("description")
-
-    # Firecrawl doesn't return structured schemas by default; placeholder
-    schemas: List[Dict[str, Any]] = []
-    summary = MetadataSummary()
-
-    return ScanResponse(
-        url=url,
-        title=title,
-        description=description,
-        text_preview=text_preview,
-        schemas=schemas,
-        metadata_summary=summary,
-    )
+        return ScanResponse(
+            url=url,
+            title=data.get("metadata", {}).get("title"),
+            description=data.get("metadata", {}).get("description"),
+            text_preview=data.get("markdown", "")[:500] if data.get("markdown") else None,
+            schemas=[],
+            metadata_summary=MetadataSummary(),
+        )
+    except Exception as e:
+        logger.error(f"Firecrawl API error: {e}")
+        return ScanResponse(
+            url=url,
+            error=f"Firecrawl API error: {str(e)}",
+            metadata_summary=MetadataSummary(),
+        )
 
 
 @router.post("/", response_model=ScanResponse)
@@ -161,14 +241,24 @@ def scan_url(payload: ScanRequest) -> ScanResponse:
     """
     Scan a URL and extract metadata.
     Uses local extraction (trafilatura + extruct) by default.
-    If FIRECRAWL_API_KEY is set, uses Firecrawl API instead.
+    Falls back to Firecrawl API if FIRECRAWL_API_KEY is set.
     """
-    url = payload.url
-    if not url.startswith(("http://", "https://")):
-        raise HTTPException(status_code=400, detail="URL must start with http or https")
+    url = payload.url.strip()
 
-    use_firecrawl = bool(os.environ.get("FIRECRAWL_API_KEY"))
-    if use_firecrawl:
-        return extract_firecrawl(url)
-    else:
-        return extract_local(url)
+    # Validate URL format
+    if not url.startswith(("http://", "https://")):
+        return ScanResponse(
+            url=url,
+            error="Invalid URL - must start with http:// or https://",
+            metadata_summary=MetadataSummary(),
+        )
+
+    # Try local extraction first
+    result = extract_local(url)
+
+    # If local extraction failed and Firecrawl is configured, try it
+    if result.error and os.getenv("FIRECRAWL_API_KEY"):
+        logger.info(f"Local extraction failed for {url}, trying Firecrawl...")
+        result = extract_firecrawl(url)
+
+    return result
