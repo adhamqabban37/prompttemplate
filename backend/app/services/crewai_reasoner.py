@@ -4,8 +4,8 @@ This module wraps a lightweight CrewAI/LiteLLM call to generate AEO/GEO
 insights and recommendations from a scan payload and lighthouse metrics.
 
 Env:
-  CREWAI_MODEL - model string (default: 'ollama/llama3')
-  OLLAMA_HOST - optional Ollama host (e.g., http://localhost:11434)
+    MODEL or CREWAI_MODEL - model string (default: 'ollama/llama3')
+    OLLAMA_HOST - Ollama host (e.g., http://localhost:11434)
 
 If the model or CrewAI stack is not available, generate_recommendations
 returns a graceful fallback message explaining the situation.
@@ -15,6 +15,8 @@ from __future__ import annotations
 import os
 import logging
 from typing import Any, Dict, List
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+import json
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -39,8 +41,14 @@ def _build_prompt(scan: Dict[str, Any], psi: Dict[str, Any]) -> str:
     # Compact system + user prompt that asks for JSON only
     model_goals = (
         "You are XenlixAI, an assistant that generates concise AEO (Answer Engine Optimization)"
-        " and GEO (Local SEO) insights and concrete recommendations. Respond ONLY with valid JSON"
-        " following the schema: visibility_score_explainer (string), top_findings (list), recommendations (list of {title,type,impact,effort,details})."
+        " and GEO (Local SEO) insights and concrete recommendations.\n"
+        "CRITICAL: Return ONLY valid JSON. No markdown code blocks (no ```json or ```), no backticks, no prose.\n"
+        " Your entire response MUST be a single JSON object starting with { and ending with }.\n"
+        "Schema: {\"visibility_score_explainer\": string, \"top_findings\": string[], \"recommendations\": array}.\n"
+        "Each recommendation MUST have: {\"title\": string, \"type\": string, \"impact\": integer, \"effort\": integer, \"details\": string}.\n"
+        "Constraints: impact and effort MUST be integers from 1 to 5 (no decimals, no quotes).\n"
+        "Example valid format:\n"
+        "{\"visibility_score_explainer\":\"SEO score is strong\",\"top_findings\":[\"Finding 1\"],\"recommendations\":[{\"title\":\"Fix meta\",\"type\":\"SEO\",\"impact\":4,\"effort\":2,\"details\":\"Add description\"}]}\n"
     )
 
     psi_summary = {
@@ -51,7 +59,16 @@ def _build_prompt(scan: Dict[str, Any], psi: Dict[str, Any]) -> str:
         "cls": psi.get("web_vitals", {}).get("cls"),
     }
 
-    schemas = scan.get("metadata_summary", {})
+    # Coerce metadata_summary to a plain dict
+    schemas_any = scan.get("metadata_summary") or {}
+    if hasattr(schemas_any, "model_dump"):
+        schemas = schemas_any.model_dump()
+    elif hasattr(schemas_any, "dict"):
+        schemas = schemas_any.dict()
+    elif isinstance(schemas_any, dict):
+        schemas = schemas_any
+    else:
+        schemas = {}
     has_localbusiness = any(
         (s.get("type") == "json-ld" and ("LocalBusiness" in str(s.get("data")))) for s in scan.get("schemas", [])
     )
@@ -59,12 +76,16 @@ def _build_prompt(scan: Dict[str, Any], psi: Dict[str, Any]) -> str:
         (s.get("type") == "json-ld" and ("FAQPage" in str(s.get("data")) or "Question" in str(s.get("data")))) for s in scan.get("schemas", [])
     )
 
+    text_preview = str(scan.get('text_preview') or '')[:300]
+    keyphrases_list = scan.get('keyphrases') or []
+    key_topics = ", ".join([str(k) for k in keyphrases_list]) if keyphrases_list else "n/a"
     prompt = (
         f"{model_goals}\n\n"
         f"URL: {scan.get('url')}\n"
         f"Title: {scan.get('title')!r}\n"
         f"Description: {scan.get('description')!r}\n"
-        f"TextPreview: {scan.get('text_preview', '')[:300]!r}\n"
+        f"TextPreview: {text_preview!r}\n"
+        f"Key Topics: {key_topics}\n"
         f"Schemas summary: json_ld_count={schemas.get('json_ld_count')}, microdata_count={schemas.get('microdata_count')}, opengraph_count={schemas.get('opengraph_count')}\n"
         f"Has LocalBusiness: {has_localbusiness}, Has FAQ: {has_faq}\n"
         f"PSI: {psi_summary}\n"
@@ -74,75 +95,104 @@ def _build_prompt(scan: Dict[str, Any], psi: Dict[str, Any]) -> str:
     return prompt
 
 
-def generate_recommendations(scan: Dict[str, Any], lighthouse: Dict[str, Any]) -> Dict[str, Any]:
-    """Generate insights using CrewAI/LiteLLM. Returns a validated JSON-like dict.
+def generate_recommendations(
+    scan: Dict[str, Any],
+    lighthouse: Dict[str, Any],
+    timeout_seconds: int = 30,
+) -> Dict[str, Any]:
+    """Generate insights using a local CrewAI LLM via Ollama.
 
-    If model/runtime is not configured, returns a fallback explanation dict.
+    Returns a validated JSON-like dict. If the local runtime isn't available,
+    returns a graceful fallback.
     """
-    model = os.getenv("CREWAI_MODEL", "ollama/llama3")
-    if not model:
-        return {"error": "CREWAI_MODEL not set - reasoning disabled"}
+    # Check if AI is enabled
+    from app.core.config import settings
+    if not settings.CREW_AI_ENABLED:
+        logger.info("CrewAI is disabled (CREW_AI_ENABLED=false), returning rule-based fallback")
+        return _create_fallback_insights()
 
-    # Try importing crewai / litellm stack. If not available, fallback gracefully.
-    try:
-        # Use litellm for a lightweight adapter if available; otherwise, crewai.
-        try:
-            from litellm import OpenAI  # type: ignore
-        except Exception:
-            OpenAI = None
+    # Use configured timeout if available
+    if hasattr(settings, 'LLM_TIMEOUT_SECONDS'):
+        timeout_seconds = settings.LLM_TIMEOUT_SECONDS
 
-        # If crewai is present, prefer it. But to avoid heavy dependencies, allow missing.
-        import crewai  # type: ignore
-    except Exception as e:
-        logger.warning(f"CrewAI stack not available: {e}")
-        return {
-            "visibility_score_explainer": "CrewAI model not configured on server.",
-            "top_findings": ["Reasoning unavailable: CREWAI_MODEL or runtime not configured"],
-            "recommendations": [],
-            "note": str(e),
-        }
-
+    # Create prompt
     prompt = _build_prompt(scan, lighthouse)
 
-    # Attempt a simple call pattern; keep it minimal to avoid coupling to a single SDK.
+    # Try to get a local LLM (Ollama) client
     try:
-        # NOTE: We avoid locking into exact SDK shapes; this is best-effort.
-        # If litellm is available, use a simple completion call; otherwise try crewai.run
-        if 'litellm' in globals() and globals().get('OpenAI'):
-            # Very small stub using litellm-like interface (may need adjustment in real env)
-            client = OpenAI(model=model)
-            resp = client.complete(prompt)
-            text = getattr(resp, 'text', str(resp))
-        else:
-            # crewai fallback (best-effort). Many crewai setups expose a "run" function.
+        from app.services.llm_factory import get_llm
+        llm = get_llm()
+    except Exception as e:
+        logger.warning(f"LLM not available: {e}")
+        return {
+            "visibility_score_explainer": "AI insights unavailable (model/runtime not configured).",
+            "top_findings": [],
+            "recommendations": [],
+        }
+
+    # Call the local model
+    try:
+        # Wrap the call in a thread to enforce timeout
+        def _invoke() -> str:
+            # CrewAI/LiteLLM typically exposes a .call() method
+            return llm.call(prompt)  # type: ignore[attr-defined]
+
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            future = ex.submit(_invoke)
             try:
-                text = crewai.run(prompt, model=model)  # type: ignore
-            except Exception:
-                # Last resort: try to call crewai.Client
-                if hasattr(crewai, 'Client'):
-                    client = crewai.Client()
-                    text = client.run(prompt, model=model)
-                else:
-                    raise
+                text = future.result(timeout=timeout_seconds)
+            except FuturesTimeoutError:
+                logger.error("LLM call timed out")
+                return _create_fallback_insights()
 
-        # Expect the model to return JSON. Try to parse.
-        import json
+        # Validate raw output before JSON parsing
+        if not isinstance(text, str):
+            logger.error("LLM returned non-string output")
+            return _create_fallback_insights()
+        
+        raw = text.strip()
+        
+        # Strip markdown code fences if present (auto-repair)
+        if raw.startswith("```"):
+            # Remove opening fence (```json or ```)
+            lines = raw.split('\n')
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            # Remove closing fence (```)
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            raw = '\n'.join(lines).strip()
+            logger.info("Auto-repaired: removed markdown code fences from LLM output")
+        
+        if not raw or raw[0] not in ('{', '['):
+            logger.error(f"Invalid JSON format from LLM: {raw[:120]}")
+            return _create_fallback_insights()
 
-        parsed = json.loads(text)
+        # Parse and validate
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as je:
+            logger.error(f"JSON parsing failed: {je}")
+            return _create_fallback_insights()
 
-        # Validate with Pydantic and return the dict
         try:
             validated = InsightsResponse(**parsed)
             return validated.model_dump()
         except ValidationError as ve:
             logger.warning(f"CrewAI output validation failed: {ve}")
-            # Return best-effort parsed content, with validation note
             return {"note": "validation_failed", "raw": parsed}
 
     except Exception as e:
         logger.error(f"Error during CrewAI reasoning: {e}")
-        return {
-            "visibility_score_explainer": "CrewAI reasoning failed",
-            "top_findings": [f"Reasoning error: {str(e)}"],
-            "recommendations": [],
-        }
+        return _create_fallback_insights()
+
+
+def _create_fallback_insights() -> Dict[str, Any]:
+    """Return minimal, safe insights when AI fails."""
+    return {
+        "visibility_score_explainer": "Technical analysis complete - AI insights temporarily unavailable.",
+        "top_findings": [
+            "AI analysis unavailable - showing rule-based results only"
+        ],
+        "recommendations": [],
+    }

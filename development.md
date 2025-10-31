@@ -1,14 +1,114 @@
 # FastAPI Project - Development
 
+## 🚀 Fast Dev on Windows (No Docker rebuilds)
+
+**Problem:** Running `pip install -e .` hangs for hours, and Docker rebuilds are slow.
+
+**Solution:** Run FastAPI directly on Windows with hot-reload. Use Docker only for Postgres/Redis.
+
+### Why pip install was slow
+
+Your backend has these heavy dependencies that compile C extensions on Windows:
+
+- `sentence-transformers` → Downloads 400MB+ ML models + compiles PyTorch/NumPy
+- `lxml` → Compiles XML parser from C source
+- `bcrypt`, `psycopg[binary]` → Cryptography and database drivers with native code
+- `crewai` + `litellm` → Large AI frameworks with many transitive deps
+
+On Windows, pip builds these from source unless pre-built wheels exist for your Python version, which causes 30-60 min installs.
+
+### ⚡ Quick Start (3 minutes)
+
+**1. Rebuild venv cleanly:**
+
+```powershell
+cd c:\dev\projects-template\backend
+.\rebuild_venv.ps1
+```
+
+This script:
+
+- Kills stuck pip/python processes
+- Deletes corrupted `.venv`
+- Creates fresh venv
+- Upgrades pip/setuptools/wheel
+- Installs all deps (detects `uv` for 10x speedup)
+
+**2. Start Docker infra only:**
+
+```powershell
+cd c:\dev\projects-template
+docker compose up -d db redis adminer
+```
+
+**3. Run backend with hot-reload:**
+
+```powershell
+cd backend
+.\run_backend.ps1
+```
+
+Backend runs at: http://localhost:8001/docs
+
+**4. Run frontend (optional):**
+
+```powershell
+cd frontend
+npm install  # first time only
+npm run dev
+```
+
+Frontend runs at: http://localhost:5174
+
+### Docker Compose Only for Infra
+
+To avoid rebuilding Docker images, start only database services:
+
+```powershell
+# Start infra (no build)
+docker compose up -d db redis adminer
+
+# Stop backend/frontend containers if running
+docker compose stop backend frontend worker
+```
+
+Your `.env` file will be read by the PowerShell scripts for API keys (Stripe, PSI, etc).
+
+### Performance Tips
+
+- **Install `uv`** for 10-100x faster Python installs:
+
+  ```powershell
+  pip install uv
+  ```
+
+  Then use `uv sync` instead of `pip install -e .`
+
+- **Use binary packages** (already configured):
+
+  - ✅ `psycopg[binary]` instead of `psycopg` (no PostgreSQL build tools needed)
+  - ✅ `bcrypt==4.3.0` pinned (avoids Rust compiler)
+
+- **Skip heavy deps in dev** (optional):
+  Comment out in `pyproject.toml` if not needed:
+
+  - `crewai`, `litellm` (AI features)
+  - `sentence-transformers`, `keybert` (ML keyphrase extraction)
+
+- **Pre-download models** (one-time):
+  The first run downloads ML models (~500MB) for `sentence-transformers`. This only happens once per venv.
+
+---
+
 ## Docker Compose
 
-* Start the local stack with Docker Compose:
+- Start the local stack with Docker Compose:
 
 ```bash
 docker compose watch
 ```
 
-* Now you can open your browser and interact with these URLs:
+- Now you can open your browser and interact with these URLs:
 
 Frontend, built with Docker, with routes handled based on the path: http://localhost:5173
 
@@ -63,10 +163,42 @@ docker compose stop backend
 
 And then you can run the local development server for the backend:
 
-```bash
+````bash
 cd backend
 fastapi dev app/main.py
-```
+
+## Fast dev without Docker rebuilds (recommended)
+
+To avoid image rebuilds on every code change, run the app services on your host with hot-reload and keep only infra in Docker:
+
+- Docker: db, redis, proxy, adminer
+- Host: backend (uvicorn --reload), worker (python -m app.worker), frontend (Vite dev server)
+
+One-command setup on Windows (PowerShell):
+
+1) Start from repo root and run the helper script:
+
+```powershell
+pwsh -NoLogo -NoProfile -File .\scripts\dev-host.ps1
+````
+
+What it does:
+
+- Starts Docker infra with `docker compose up -d db redis proxy adminer` (no build)
+- Creates a Python venv under `backend/.venv` if missing and installs deps
+- Exports sensible dev env vars (DB/Redis, CORS, metrics)
+- Opens separate terminals for:
+  - Backend at http://localhost:8001 (uvicorn --reload)
+  - Worker consuming background jobs
+  - Frontend at http://localhost:5174 (Vite dev server)
+
+Notes:
+
+- Edit `.env` in the repo root to add API keys (e.g., `PSI_API_KEY`, `STRIPE_SECRET_KEY`) if you want those features during dev.
+- Use `docker compose up -d` (without `--build`) to restart infra fast. Only rebuild images when you change dependencies or Dockerfiles.
+- The frontend already proxies `/api` to the backend in dev, so calls like `fetch('/api/...')` work without extra config.
+
+````
 
 ## Docker Compose in `localhost.tiangolo.com`
 
@@ -80,7 +212,7 @@ If you want to test that it's all working locally, you can edit the local `.env`
 
 ```dotenv
 DOMAIN=localhost.tiangolo.com
-```
+````
 
 That will be used by the Docker Compose files to configure the base domain for the services.
 

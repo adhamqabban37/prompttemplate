@@ -1,0 +1,268 @@
+# XenlixAI Scoring Rules Configuration
+# This file defines the scoring logic for AEO (Answer Engine Optimization) and GEO (Geographic/Local SEO)
+# Edit weights, thresholds, and formulas without changing Python code
+
+aeo_dimensions:
+  - name: "Answerability"
+    rationale: "FAQ and Q&A signals"
+    base_score: 40
+    rules:
+      - type: "faq_count"
+        field: "faq_count"
+        multiplier: 20
+        description: "Points per FAQ schema detected"
+      - type: "question_headings"
+        field: "headings.h2"
+        multiplier: 10
+        filter: "question_patterns"
+        description: "H2s starting with question words or containing ?"
+    max_score: 100
+
+  - name: "Schema Coverage & Quality"
+    rationale: "Presence of structured data"
+    base_score: 30
+    rules:
+      - type: "schema_diversity"
+        field: "schema_types"
+        multiplier: 10
+        transform: "unique_count"
+        max_contribution: 70
+        description: "10 points per unique schema type"
+      - type: "local_business_bonus"
+        field: "schema_types"
+        bonus: 10
+        condition: "contains_localbusiness"
+        description: "Bonus for LocalBusiness schema"
+    max_score: 100
+
+  - name: "Entity/NAP Consistency"
+    rationale: "NAP presence across page/schema"
+    base_score: 50
+    rules:
+      - type: "business_name"
+        field: "business.name"
+        points: 15
+        description: "Business name detected"
+      - type: "business_phone"
+        field: "business.phone"
+        points: 15
+        description: "Phone number detected"
+      - type: "business_address"
+        field: "business.address"
+        points: 20
+        description: "Physical address detected"
+    max_score: 100
+
+  - name: "Topical Authority"
+    rationale: "Internal linking depth"
+    base_score: 30
+    rules:
+      - type: "internal_links"
+        field: "internal_links"
+        formula: "min(50, value // 10)"
+        description: "Internal link count divided by 10, capped at 50 points"
+    max_score: 100
+
+  - name: "Content Quality"
+    rationale: "Main text length proxy"
+    base_score: 30
+    rules:
+      - type: "text_length"
+        field: "text_len"
+        formula: "min(70, value // 800)"
+        description: "Text length divided by 800, capped at 70 points"
+    max_score: 100
+
+  - name: "E-E-A-T"
+    rationale: "About/Reviews cues"
+    base_score: 50
+    rules:
+      - type: "about_link"
+        field: "links_text"
+        points: 10
+        condition: "contains_about"
+        description: "About page link detected"
+      - type: "review_content"
+        field: "html_lower"
+        points: 10
+        condition: "contains_review"
+        description: "Review mentions on page"
+    max_score: 100
+
+  - name: "Citations/Backlinks (light)"
+    rationale: "Presence of known citation links"
+    base_score: 20
+    rules:
+      - type: "citation_sources"
+        field: "out_links"
+        multiplier: 20
+        targets:
+          - "yelp"
+          - "google.com/maps"
+          - "facebook.com"
+          - "avvo"
+          - "bbb.org"
+          - "findlaw"
+          - "justia"
+        description: "20 points per citation source link"
+    max_score: 100
+
+geo_dimensions:
+  - name: "Local Signals"
+    rationale: "Address and map embeds"
+    base_score: 30
+    rules:
+      - type: "address_present"
+        field: "business.address"
+        points: 20
+        description: "Physical address detected"
+      - type: "map_embed"
+        field: "html_lower"
+        points: 10
+        condition: "contains_maps_google"
+        description: "Google Maps embed detected"
+    max_score: 100
+
+  - name: "Service Area Clarity"
+    rationale: "Service areas present"
+    base_score: 30
+    rules:
+      - type: "service_areas"
+        field: "business.service_areas"
+        points: 10
+        condition: "not_empty"
+        description: "Service areas defined"
+    max_score: 100
+
+  - name: "Location Schema"
+    rationale: "PostalAddress/Geo coordinates"
+    base_score: 30
+    rules:
+      - type: "location_schema_types"
+        field: "schema_types"
+        points: 20
+        condition: "contains_location_schema"
+        targets:
+          - "postaladdress"
+          - "geo"
+          - "geocoordinates"
+        description: "Location-specific schema present"
+    max_score: 100
+
+  - name: "NAP Prominence"
+    rationale: "Clickable phone/email"
+    base_score: 40
+    rules:
+      - type: "phone_clickable"
+        field: "business.phone"
+        points: 10
+        description: "Phone number present"
+      - type: "email_clickable"
+        field: "business.email"
+        points: 10
+        description: "Email present"
+    max_score: 100
+
+  - name: "Local Reviews/Proof"
+    rationale: "Review cues on page"
+    base_score: 30
+    rules:
+      - type: "review_mentions"
+        field: "html_lower"
+        points: 10
+        condition: "contains_review"
+        description: "Review content detected"
+    max_score: 100
+
+  - name: "Local Speed Snapshot"
+    rationale: "PSI performance proxy"
+    base_score: 50
+    rules:
+      - type: "psi_performance"
+        field: "psi.performance"
+        formula: "value // 2"
+        fallback_score: 40
+        description: "Half of PSI performance score"
+    max_score: 100
+
+weaknesses:
+  - title: "Missing address on page"
+    impact: "high"
+    condition:
+      field: "business.address"
+      operator: "not_present"
+    evidence: ["No PostalAddress/visible address"]
+    fix_summary: "Add full NAP and LocalBusiness schema with PostalAddress."
+
+  - title: "Missing LocalBusiness schema"
+    impact: "high"
+    condition:
+      field: "schema_types"
+      operator: "not_contains"
+      value: "localbusiness"
+    evidence: ["schema_types lacks LocalBusiness"]
+    fix_summary: "Add LocalBusiness JSON-LD with name, address, phone, geo."
+
+  - title: "Performance could be improved"
+    impact: "med"
+    condition:
+      field: "psi.performance"
+      operator: "less_than"
+      value: 70
+    evidence_template: "PSI performance={psi.performance}"
+    fix_summary: "Optimize images, defer non-critical JS, and leverage caching."
+
+  - title: "Low internal linking"
+    impact: "med"
+    condition:
+      field: "internal_links"
+      operator: "less_than"
+      value: 20
+    evidence_template: "internal_links={internal_links}"
+    fix_summary: "Create topic clusters and link service pages and FAQs internally."
+
+  - title: "Missing FAQ schema"
+    impact: "med"
+    condition:
+      field: "faq_count"
+      operator: "equals"
+      value: 0
+    evidence: ["No FAQPage schema detected"]
+    fix_summary: "Add FAQPage schema with common customer questions and answers."
+
+  - title: "Thin content"
+    impact: "med"
+    condition:
+      field: "text_len"
+      operator: "less_than"
+      value: 1000
+    evidence_template: "text_len={text_len}"
+    fix_summary: "Expand content to provide comprehensive information (aim for 1500+ words)."
+
+# Question patterns for heading analysis
+question_patterns:
+  - "what"
+  - "how"
+  - "why"
+  - "when"
+  - "where"
+  - "?"
+
+# Citation sources for authority scoring
+citation_sources:
+  - "yelp"
+  - "google.com/maps"
+  - "facebook.com"
+  - "avvo"
+  - "bbb.org"
+  - "findlaw"
+  - "justia"
+  - "yellowpages"
+  - "foursquare"
+
+# Schema types for location scoring
+location_schema_types:
+  - "postaladdress"
+  - "geo"
+  - "geocoordinates"
+  - "place"

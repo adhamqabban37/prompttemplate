@@ -1,4 +1,20 @@
 services:
+  redis:
+    image: redis:7-alpine
+    restart: always
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      retries: 5
+      start_period: 10s
+      timeout: 5s
+    volumes:
+      - redis-data:/data
+    networks:
+      - default
+    ports:
+      - "6379:6379"
 
   db:
     image: postgres:17
@@ -43,7 +59,7 @@ services:
       - traefik.http.services.${STACK_NAME?Variable not set}-adminer.loadbalancer.server.port=8080
 
   prestart:
-    image: '${DOCKER_IMAGE_BACKEND?Variable not set}:${TAG-latest}'
+    image: "${DOCKER_IMAGE_BACKEND?Variable not set}:${TAG-latest}"
     build:
       context: ./backend
     networks:
@@ -76,7 +92,7 @@ services:
       - SENTRY_DSN=${SENTRY_DSN}
 
   backend:
-    image: '${DOCKER_IMAGE_BACKEND?Variable not set}:${TAG-latest}'
+    image: "${DOCKER_IMAGE_BACKEND?Variable not set}:${TAG-latest}"
     restart: always
     networks:
       - traefik-public
@@ -85,6 +101,8 @@ services:
       db:
         condition: service_healthy
         restart: true
+      redis:
+        condition: service_healthy
       prestart:
         condition: service_completed_successfully
     env_file:
@@ -109,13 +127,23 @@ services:
       - SENTRY_DSN=${SENTRY_DSN}
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/utils/health-check/"]
+      test:
+        [
+          "CMD",
+          "curl",
+          "-f",
+          "http://localhost:8000/api/v1/utils/health-check/",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
 
     build:
       context: ./backend
+    volumes:
+      - st_cache:/root/.cache/sentence-transformers
+      - hf_cache:/root/.cache/huggingface
+      - torch_cache:/root/.cache/torch
     labels:
       - traefik.enable=true
       - traefik.docker.network=traefik-public
@@ -135,7 +163,7 @@ services:
       - traefik.http.routers.${STACK_NAME?Variable not set}-backend-http.middlewares=https-redirect
 
   frontend:
-    image: '${DOCKER_IMAGE_FRONTEND?Variable not set}:${TAG-latest}'
+    image: "${DOCKER_IMAGE_FRONTEND?Variable not set}:${TAG-latest}"
     restart: always
     networks:
       - traefik-public
@@ -164,6 +192,10 @@ services:
       - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-http.middlewares=https-redirect
 volumes:
   app-db-data:
+  redis-data:
+  st_cache:
+  hf_cache:
+  torch_cache:
 
 networks:
   traefik-public:

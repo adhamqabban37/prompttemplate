@@ -2,6 +2,7 @@ import uuid
 
 from pydantic import EmailStr
 from sqlmodel import Field, Relationship, SQLModel
+from sqlalchemy import JSON, Column
 
 
 # Shared properties
@@ -9,6 +10,8 @@ class UserBase(SQLModel):
     email: EmailStr = Field(unique=True, index=True, max_length=255)
     is_active: bool = True
     is_superuser: bool = False
+    # Premium access flag for unlocking full dashboard features
+    is_premium: bool = False
     full_name: str | None = Field(default=None, max_length=255)
 
 
@@ -111,3 +114,29 @@ class TokenPayload(SQLModel):
 class NewPassword(SQLModel):
     token: str
     new_password: str = Field(min_length=8, max_length=128)
+
+
+# Scan pipeline minimal model
+class ScanJob(SQLModel, table=True):
+    """Persisted scan pipeline job to support status polling and payload fetches.
+
+    State machine:
+    IDLE → QUEUED → RUNNING (CRAWL → PARSE → ANALYZE → GENERATE) → TEASER_READY → FULL_READY
+    Errors: ERROR_CRAWL, ERROR_PARSE, ERROR_ANALYZE, ERROR_GENERATE
+    """
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    url: str = Field(index=True, max_length=2048)
+    status: str = Field(default="QUEUED", index=True)
+    step: str | None = Field(default=None)
+    progress: int = Field(default=0, ge=0, le=100)
+    # Owner may be null for unauthenticated scans
+    owner_id: uuid.UUID | None = Field(default=None, foreign_key="user.id")
+    # Cached payloads (JSON)
+    teaser_json: dict | None = Field(default=None, sa_column=Column(JSON))
+    full_json: dict | None = Field(default=None, sa_column=Column(JSON))
+    # Optional shallow crawl results (lightweight per-page data)
+    extra_pages: list[dict] | None = Field(default=None, sa_column=Column(JSON))
+    # Timestamps (auto-managed in code)
+    created_at: int | None = None  # epoch seconds
+    updated_at: int | None = None  # epoch seconds

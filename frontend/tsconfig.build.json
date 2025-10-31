@@ -1,4 +1,9 @@
 {
   "extends": "./tsconfig.json",
-  "exclude": ["tests/**/*.ts"]
+  "exclude": [
+    "tests/**/*.ts",
+    "src/routes/_layout/paywall.$scanId.tsx",
+    "src/routes/_layout/premium.$scanId.tsx",
+    "src/routes/_layout/paywall.simple.$scanId.tsx"
+  ]
 }

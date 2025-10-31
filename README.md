@@ -6,15 +6,15 @@
 ## Technology Stack and Features
 
 - ⚡ [**FastAPI**](https://fastapi.tiangolo.com) for the Python backend API.
-    - 🧰 [SQLModel](https://sqlmodel.tiangolo.com) for the Python SQL database interactions (ORM).
-    - 🔍 [Pydantic](https://docs.pydantic.dev), used by FastAPI, for the data validation and settings management.
-    - 💾 [PostgreSQL](https://www.postgresql.org) as the SQL database.
+  - 🧰 [SQLModel](https://sqlmodel.tiangolo.com) for the Python SQL database interactions (ORM).
+  - 🔍 [Pydantic](https://docs.pydantic.dev), used by FastAPI, for the data validation and settings management.
+  - 💾 [PostgreSQL](https://www.postgresql.org) as the SQL database.
 - 🚀 [React](https://react.dev) for the frontend.
-    - 💃 Using TypeScript, hooks, Vite, and other parts of a modern frontend stack.
-    - 🎨 [Chakra UI](https://chakra-ui.com) for the frontend components.
-    - 🤖 An automatically generated frontend client.
-    - 🧪 [Playwright](https://playwright.dev) for End-to-End testing.
-    - 🦇 Dark mode support.
+  - 💃 Using TypeScript, hooks, Vite, and other parts of a modern frontend stack.
+  - 🎨 [Chakra UI](https://chakra-ui.com) for the frontend components.
+  - 🤖 An automatically generated frontend client.
+  - 🧪 [Playwright](https://playwright.dev) for End-to-End testing.
+  - 🦇 Dark mode support.
 - 🐋 [Docker Compose](https://www.docker.com) for development and production.
 - 🔒 Secure password hashing by default.
 - 🔑 JWT (JSON Web Token) authentication.
@@ -139,6 +139,60 @@ Before deploying it, make sure you change at least the values for:
 You can (and should) pass these as environment variables from secrets.
 
 Read the [deployment.md](./deployment.md) docs for more details.
+
+## Quick start (local)
+
+Backend + DB:
+
+```powershell
+cd C:\dev\projects-template
+docker compose up -d
+```
+
+Frontend (Vite HMR):
+
+```powershell
+cd C:\dev\projects-template\frontend
+npm install
+npm run dev
+```
+
+Health & Warm-up:
+
+```powershell
+# Backend health (direct)
+Invoke-RestMethod http://127.0.0.1:8001/api/v1/utils/health-check/
+
+# Warm-up KeyBERT (preloads model)
+Invoke-RestMethod -Method POST http://127.0.0.1:8001/api/v1/warmup/keybert
+
+# Warm-up PSI cache for a URL
+Invoke-RestMethod -Method POST "http://127.0.0.1:8001/api/v1/warmup/psi?url=https://example.com"
+```
+
+Verify end-to-end:
+
+```powershell
+# Example scan (KeyBERT + PSI + timings)
+Invoke-RestMethod "http://127.0.0.1:8001/api/v1/scan?url=https://example.com"
+
+# SSRF negative test (expect 400)
+$hdr=$null; $r=Invoke-RestMethod -Uri "http://127.0.0.1:8001/api/v1/scan?url=http://127.0.0.1:22" -SkipHttpErrorCheck -ResponseHeadersVariable hdr; $hdr.StatusCode; $r
+```
+
+Helper scripts:
+
+```powershell
+./scripts/test_health.ps1
+./scripts/test_ssrf.ps1
+./scripts/test_scan.ps1
+```
+
+### Troubleshooting
+
+- First scan is slow: we pre-warm the sentence-transformers model during Docker build, and also expose a `/warmup/keybert` endpoint. If it’s still slow, check that cache volumes are attached to the backend service in `docker-compose.yml`.
+- Frontend “Failed to fetch”: ensure you’re running the Vite dev server (port 5174) and not the Dockerized frontend. Vite proxies `/api` to `http://localhost:8001`.
+- PSI unavailable: ensure `PSI_API_KEY` is set in `.env`. If PSI errors repeatedly, the circuit breaker will short-circuit for a few minutes.
 
 ### Generate Secret Keys
 

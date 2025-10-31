@@ -6,3 +6,6 @@ app.egg-info
 .coverage
 htmlcov
 .venv
+dist
+**/__pycache__
+**/*.pyc

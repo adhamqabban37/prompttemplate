@@ -1,5 +1,4 @@
 services:
-
   # Local services are available on their ports, but also available on:
   # http://api.localhost.tiangolo.com: backend
   # http://dashboard.localhost.tiangolo.com: frontend
@@ -11,7 +10,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "80:80"
-      - "8090:8080"
+      - "9090:8080"
     # Duplicate the command from docker-compose.yml to add --api.insecure=true
     command:
       # Enable Docker in Traefik, so that it reads labels from Docker services
@@ -58,13 +57,15 @@ services:
   backend:
     restart: "no"
     ports:
-      - "8000:8000"
+      - "8001:8000"
     build:
       context: ./backend
     # command: sleep infinity  # Infinite loop to keep container alive doing nothing
     command:
       - fastapi
       - run
+      - --host
+      - 0.0.0.0
       - --reload
       - "app/main.py"
     develop:
@@ -85,6 +86,25 @@ services:
       SMTP_PORT: "1025"
       SMTP_TLS: "false"
       EMAILS_FROM_EMAIL: "noreply@example.com"
+      # Ensure backend receives model/PSI envs during local dev
+      MODEL: ${MODEL}
+      CREWAI_MODEL: ${CREWAI_MODEL}
+      OLLAMA_HOST: ${OLLAMA_HOST}
+      PSI_API_KEY: ${PSI_API_KEY}
+      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS}
+      PSI_CACHE_TTL_SECONDS: ${PSI_CACHE_TTL_SECONDS}
+      SCAN_MAX_CONCURRENCY: ${SCAN_MAX_CONCURRENCY}
+      SCAN_JOB_TTL_SECONDS: ${SCAN_JOB_TTL_SECONDS}
+      CREW_AI_ENABLED: ${CREW_AI_ENABLED}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS}
+      # Keyphrases
+      KEYPHRASES_ENABLED: ${KEYPHRASES_ENABLED}
+      KEYPHRASES_TOP_N: ${KEYPHRASES_TOP_N}
+      KEYPHRASES_TEXT_LIMIT: ${KEYPHRASES_TEXT_LIMIT}
+      KEYPHRASES_TIMEOUT_MS: ${KEYPHRASES_TIMEOUT_MS}
+      KEYPHRASES_CACHE_TTL_SECONDS: ${KEYPHRASES_CACHE_TTL_SECONDS}
+      # Override for Docker mode - use redis service name
+      REDIS_URL: redis://redis:6379/0
 
   mailcatcher:
     image: schickling/mailcatcher
@@ -99,8 +119,63 @@ services:
     build:
       context: ./frontend
       args:
-        - VITE_API_URL=http://localhost:8000
+        - VITE_API_URL=http://localhost:8001
         - NODE_ENV=development
+
+  # Local Vite dev server running in Node 20 for stability on Windows
+  frontend-dev:
+    image: node:20-alpine
+    working_dir: /workspace/frontend
+    command: sh -lc "npm ci && npm run dev -- --host 0.0.0.0 --port 5174"
+    ports:
+      - "5174:5174"
+    volumes:
+      - ./frontend:/workspace/frontend:cached
+    environment:
+      # Ensure Vite picks the backend at host-mapped port 8001 via proxy
+      - NODE_ENV=development
+      - VITE_IN_DOCKER=1
+    depends_on:
+      - backend
+
+  # RQ Background Worker for async scan jobs
+  worker:
+    build:
+      context: ./backend
+    command: python -m app.worker
+    restart: "no"
+    depends_on:
+      - redis
+      - db
+    env_file:
+      - .env
+    environment:
+      # Required fields
+      PROJECT_NAME: ${PROJECT_NAME}
+      FIRST_SUPERUSER: ${FIRST_SUPERUSER}
+      FIRST_SUPERUSER_PASSWORD: ${FIRST_SUPERUSER_PASSWORD}
+      SECRET_KEY: ${SECRET_KEY}
+      # Override .env values for Docker mode
+      POSTGRES_SERVER: db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_URL: redis://redis:6379/0
+      MODEL: ${MODEL}
+      CREWAI_MODEL: ${CREWAI_MODEL}
+      OLLAMA_HOST: ${OLLAMA_HOST}
+      PSI_API_KEY: ${PSI_API_KEY}
+      CREW_AI_ENABLED: ${CREW_AI_ENABLED}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS}
+      KEYPHRASES_ENABLED: ${KEYPHRASES_ENABLED}
+      KEYPHRASES_TOP_N: ${KEYPHRASES_TOP_N}
+      KEYPHRASES_TIMEOUT_MS: ${KEYPHRASES_TIMEOUT_MS}
+    volumes:
+      # Don't mount ./backend:/app here - it overwrites the container's .venv
+      # Worker doesn't need hot-reload anyway
+      # Share ML model cache with backend
+      - backend-ml-cache:/root/.cache
 
   playwright:
     build:
@@ -126,6 +201,9 @@ services:
       - ./frontend/test-results:/app/test-results
     ports:
       - 9323:9323
+
+volumes:
+  backend-ml-cache:
 
 networks:
   traefik-public:

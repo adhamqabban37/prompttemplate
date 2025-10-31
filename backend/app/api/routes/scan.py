@@ -1,19 +1,40 @@
 from __future__ import annotations
 
 import os
+import time
+import json
 from typing import Any, Dict, List, Optional
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+import uuid
 
 import requests
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 import logging
 from app.services.lighthouse import fetch_psi
 from app.services.crewai_reasoner import generate_recommendations
 from app.services.rules_loader import get_rules
 from app.services.check_engine import evaluate_rules
+from app.utils.url_validator import validate_url_or_raise, SSRFProtectionError
+from app.services.keyphrases import extract_keyphrases
+from app.services.fetcher import fetch_html, extract_title as bs_extract_title
+from app.metrics import (
+    track_scan_request,
+    track_scan_stage,
+    track_scan_error,
+    SCAN_REQUESTS_TOTAL,
+)
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/scan", tags=["scan"])
+router = APIRouter(prefix="/scan", tags=["scan"]) 
+
+# Basic concurrency and rate limiting
+import asyncio
+_scan_semaphore = asyncio.Semaphore(int(os.getenv("SCAN_MAX_CONCURRENCY", "3")))
+_rate_window_seconds = 60
+_rate_limit_per_min = int(os.getenv("SCAN_RATE_LIMIT_PER_MIN", "30"))
+_rate_counters: dict[str, list[float]] = {}
+_rate_lock = asyncio.Lock()
 
 
 class ScanRequest(BaseModel):
@@ -33,11 +54,19 @@ class ScanResponse(BaseModel):
     text_preview: Optional[str] = None
     schemas: List[Dict[str, Any]] = []
     metadata_summary: MetadataSummary
+    keyphrases: List[str] = []
     error: Optional[str] = None
     # New optional fields populated by Lighthouse + CrewAI
     lighthouse: Optional[Dict[str, Any]] = None
     visibility: Optional[Dict[str, Any]] = None
     insights: Optional[Dict[str, Any]] = None
+    timings: Optional[Dict[str, int]] = None
+
+
+@router.get("/", response_model=ScanResponse)
+def scan_url_get(url: str, request: Request) -> ScanResponse:
+    """GET variant for scanning, to support `?url=` usage."""
+    return scan_url(ScanRequest(url=url), request)
 
 
 def extract_local(url: str) -> ScanResponse:
@@ -57,96 +86,91 @@ def extract_local(url: str) -> ScanResponse:
             metadata_summary=MetadataSummary(),
         )
 
-    # Robust request headers to avoid bot blocking
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 XenlixAI/1.0",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
-        "DNT": "1",
-        "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-    }
-
+    # Fetch HTML with async httpx client (timed)
     try:
-        resp = requests.get(
-            url,
-            headers=headers,
-            timeout=15,  # Increased timeout
-            allow_redirects=True,
-            verify=True,  # SSL verification enabled
-        )
-        resp.raise_for_status()
-    except requests.exceptions.Timeout:
-        logger.warning(f"Timeout fetching {url}")
-        return ScanResponse(
-            url=url,
-            error="Request timeout - website took too long to respond",
-            metadata_summary=MetadataSummary(),
-        )
-    except requests.exceptions.SSLError as e:
-        logger.warning(f"SSL error fetching {url}: {e}")
-        return ScanResponse(
-            url=url,
-            error="SSL certificate error - website may have invalid HTTPS configuration",
-            metadata_summary=MetadataSummary(),
-        )
-    except requests.exceptions.ConnectionError as e:
-        logger.warning(f"Connection error fetching {url}: {e}")
-        return ScanResponse(
-            url=url,
-            error="Connection error - website may be down or DNS failed",
-            metadata_summary=MetadataSummary(),
-        )
-    except requests.exceptions.HTTPError as e:
-        logger.warning(f"HTTP error fetching {url}: {e}")
-        status_code = e.response.status_code if e.response else 0
-        if status_code == 403:
-            return ScanResponse(
-                url=url,
-                error="Access forbidden (403) - website blocked our scan request",
-                metadata_summary=MetadataSummary(),
-            )
-        elif status_code == 404:
-            return ScanResponse(
-                url=url,
-                error="Page not found (404) - URL does not exist",
-                metadata_summary=MetadataSummary(),
-            )
-        else:
-            return ScanResponse(
-                url=url,
-                error=f"HTTP error {status_code} - website returned an error",
-                metadata_summary=MetadataSummary(),
-            )
+        import anyio
+        timeout_s = int(os.getenv("EXTRACT_TIMEOUT_SECONDS", "20"))
+        html, html_ms = anyio.run(fetch_html, url, timeout_s)
     except Exception as e:
-        logger.error(f"Unexpected error fetching {url}: {e}")
-        return ScanResponse(
-            url=url,
-            error=f"Unexpected error: {str(e)}",
-            metadata_summary=MetadataSummary(),
-        )
+        emsg = str(e)
+        if "timed out" in emsg.lower():
+            detail = "Request timeout - website took too long to respond"
+        elif "ssl" in emsg.lower():
+            detail = "SSL certificate error - website may have invalid HTTPS configuration"
+        elif "name or service not known" in emsg.lower() or "temporary failure in name resolution" in emsg.lower():
+            detail = "DNS resolution failed - check domain"
+        elif "connecterror" in type(e).__name__.lower() or "connection" in emsg.lower():
+            detail = "Connection error - website may be down or DNS failed"
+        else:
+            detail = f"Unexpected error: {emsg}"
+        logger.warning(json.dumps({"event": "html_fetch_failed", "url": url, "error": emsg}))
+        return ScanResponse(url=url, error=detail, metadata_summary=MetadataSummary())
 
-    html = resp.text
+    # Title via BeautifulSoup (with meta/h1/hostname fallbacks)
+    title = bs_extract_title(html, url)
     base_url = get_base_url(html, url)
 
     try:
         # Extract readable text
-        text = trafilatura.extract(html, output_format="txt", include_comments=False) or ""
-        text_preview = text[:500] if text else None
+        try:
+            text = trafilatura.extract(html, output_format="txt", include_comments=False) or ""
+            text_preview = text[:500] if text else None
+        except Exception as e:
+            import traceback
+            logger.error(f"Trafilatura error for {url}: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            text = ""
+            text_preview = None
 
-        # Extract metadata
-        metadata = extruct.extract(
-            html,
-            base_url=base_url,
-            syntaxes=["json-ld", "microdata", "opengraph"],
-        )
+        # KeyBERT keyphrases (timed)
+        keyphrases: List[str] = []
+        keyphrases_ms: int = 0
+        try:
+            kp_start = time.time()
+            top_n = int(os.getenv("KEYPHRASES_TOP_N", "8"))
+            timeout_ms = int(os.getenv("KEYPHRASES_TIMEOUT_MS", "2000"))
+            keyphrases = extract_keyphrases(text or "", top_n=top_n, timeout_ms=timeout_ms, cache_key=url)
+            keyphrases_ms = int((time.time() - kp_start) * 1000)
+        except Exception as e:
+            keyphrases_ms = int((time.time() - kp_start) * 1000)
+            logger.warning(json.dumps({"event":"keyphrases_failed","url":url,"error":str(e),"duration_ms": keyphrases_ms}))
+
+        # Extract metadata (defensive against library return shape changes)
+        try:
+            metadata = extruct.extract(
+                html,
+                base_url=base_url,
+                syntaxes=["json-ld", "microdata", "opengraph"],
+            )
+        except Exception as e:
+            logger.warning(json.dumps({
+                "event": "extruct_failed",
+                "url": url,
+                "error": str(e),
+            }))
+            metadata = {}
+
+        if not isinstance(metadata, dict):
+            logger.warning(json.dumps({
+                "event": "extruct_unexpected_shape",
+                "url": url,
+                "type": str(type(metadata)),
+            }))
+            metadata = {}
 
         # Build schemas list and counts
         schemas: List[Dict[str, Any]] = []
-        json_ld_items = metadata.get("json-ld", [])
-        microdata_items = metadata.get("microdata", [])
-        opengraph_items = metadata.get("opengraph", [])
+        json_ld_items = metadata.get("json-ld", []) if isinstance(metadata, dict) else []
+        microdata_items = metadata.get("microdata", []) if isinstance(metadata, dict) else []
+        opengraph_items = metadata.get("opengraph", []) if isinstance(metadata, dict) else []
+
+        # Normalize potential unexpected shapes to lists
+        if not isinstance(json_ld_items, list):
+            json_ld_items = []
+        if not isinstance(microdata_items, list):
+            microdata_items = []
+        if not isinstance(opengraph_items, list):
+            opengraph_items = []
 
         for item in json_ld_items:
             schemas.append({"type": "json-ld", "data": item})
@@ -161,39 +185,63 @@ def extract_local(url: str) -> ScanResponse:
             opengraph_count=len(opengraph_items),
         )
 
-        # Extract title and description from OpenGraph if available
-        title = None
+        # Extract title and description from OpenGraph if available (only if not already found)
+        if not title:
+            title = None
         description = None
         for og in opengraph_items:
+            # extruct typically returns objects with a 'properties' dict mapping keys to lists
+            if not isinstance(og, dict):
+                continue  # Skip non-dict items
+            
+            # Safely get properties if it exists and is a dict
+            props_raw = og.get("properties")
+            props = props_raw if isinstance(props_raw, dict) else {}
+            
+            # Try direct keys first
             if not title:
-                # Handle both dict and list formats for OG properties
-                if isinstance(og, dict):
-                    title = og.get("og:title") or og.get("properties", {}).get("og:title")
-                    if isinstance(title, list) and title:
-                        title = title[0]
+                candidate = og.get("og:title")
+                if isinstance(candidate, list):
+                    candidate = candidate[0] if candidate else None
+                if not candidate and props:
+                    candidate = props.get("og:title")
+                    if isinstance(candidate, list):
+                        candidate = candidate[0] if candidate else None
+                if isinstance(candidate, str) and candidate.strip():
+                    title = candidate.strip()
             if not description:
-                if isinstance(og, dict):
-                    description = og.get("og:description") or og.get("properties", {}).get("og:description")
-                    if isinstance(description, list) and description:
-                        description = description[0]
+                candidate = og.get("og:description")
+                if isinstance(candidate, list):
+                    candidate = candidate[0] if candidate else None
+                if not candidate and props:
+                    candidate = props.get("og:description")
+                    if isinstance(candidate, list):
+                        candidate = candidate[0] if candidate else None
+                if isinstance(candidate, str) and candidate.strip():
+                    description = candidate.strip()
 
-        # Fallback: extract title from HTML
-        if not title:
-            import re
-            title_match = re.search(r"<title[^>]*>(.*?)</title>", html, re.I | re.S)
-            if title_match:
-                title = re.sub(r"<[^>]+>", "", title_match.group(1)).strip()
+        # Final fallback already attempted via BeautifulSoup earlier
 
-        return ScanResponse(
+        response = ScanResponse(
             url=url,
             title=title,
             description=description,
             text_preview=text_preview,
             schemas=schemas,
             metadata_summary=summary,
+            keyphrases=keyphrases,
         )
+        # Attach granular timings so frontend can show HTML/Keyphrases separately
+        try:
+            # html_ms defined during fetch; keyphrases_ms measured above
+            response.timings = {"html_ms": html_ms, "keyphrases_ms": keyphrases_ms}
+        except Exception:
+            pass
+        return response
     except Exception as e:
+        import traceback
         logger.error(f"Error extracting metadata from {url}: {e}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return ScanResponse(
             url=url,
             error=f"Extraction error: {str(e)}",
@@ -244,39 +292,137 @@ def extract_firecrawl(url: str) -> ScanResponse:
         )
 
 
+async def _rate_check(ip: str) -> bool:
+    now = time.time()
+    cutoff = now - _rate_window_seconds
+    async with _rate_lock:
+        hist = _rate_counters.get(ip, [])
+        hist = [t for t in hist if t >= cutoff]
+        if len(hist) >= _rate_limit_per_min:
+            _rate_counters[ip] = hist
+            return False
+        hist.append(now)
+        _rate_counters[ip] = hist
+        return True
+
+
 @router.post("/", response_model=ScanResponse)
-def scan_url(payload: ScanRequest) -> ScanResponse:
+def scan_url(payload: ScanRequest, request: Request) -> ScanResponse:
     """
     Scan a URL and extract metadata.
     Uses local extraction (trafilatura + extruct) by default.
     Falls back to Firecrawl API if FIRECRAWL_API_KEY is set.
     """
+    # Generate scan ID for observability
+    scan_id = str(uuid.uuid4())[:8]
+    start_time = time.time()
+    
     url = payload.url.strip()
+    # Enforce request size/URL length limits
+    if len(url) > 2048:
+        raise HTTPException(status_code=400, detail="URL too long (max 2048 characters)")
 
-    # Validate URL format
-    if not url.startswith(("http://", "https://")):
-        return ScanResponse(
-            url=url,
-            error="Invalid URL - must start with http:// or https://",
-            metadata_summary=MetadataSummary(),
-        )
+    client_ip = request.client.host if request.client else "unknown"
 
-    # Try local extraction first
-    result = extract_local(url)
+    # Structured logging: scan start
+    logger.info(json.dumps({
+        "event": "scan_start",
+        "scan_id": scan_id,
+        "url": url,
+        "timestamp": time.time(),
+    }))
+    
+    # Track scan request with metrics
+    with track_scan_request("/api/v1/scan") as metrics_ctx:
+        # Rate limit per-IP
+        try:
+            import anyio
+            # Run async rate-check in a blocking context
+            ok = anyio.run(_rate_check, client_ip)
+        except Exception:
+            ok = True
+        if not ok:
+            raise HTTPException(status_code=429, detail="Rate limit exceeded, try again later")
+
+        # SSRF protection: validate URL before any network requests
+        try:
+            validate_url_or_raise(url)
+        except SSRFProtectionError as e:
+            logger.warning(json.dumps({
+                "event": "scan_rejected",
+                "scan_id": scan_id,
+                "url": url,
+                "reason": "ssrf_protection",
+                "error": str(e),
+            }))
+            track_scan_error("ssrf")
+            # Enforce HTTP 400 for SSRF attempts
+            raise HTTPException(status_code=400, detail=f"URL rejected: {str(e)}")
+
+        # Validate URL format (redundant after SSRF check, but kept for clarity)
+        if not url.startswith(("http://", "https://")):
+            logger.warning(json.dumps({
+                "event": "scan_rejected",
+                "scan_id": scan_id,
+                "url": url,
+                "reason": "invalid_scheme",
+            }))
+            return ScanResponse(
+                url=url,
+                error="Invalid URL - must start with http:// or https://",
+                metadata_summary=MetadataSummary(),
+            )
+
+        # Step 1: Extract metadata
+        extract_start = time.time()
+        result = extract_local(url)
+        extract_ms = int((time.time() - extract_start) * 1000)
+    
+    logger.info(json.dumps({
+        "event": "extract_complete",
+        "scan_id": scan_id,
+        "url": url,
+        "duration_ms": extract_ms,
+        "has_error": bool(result.error),
+    }))
 
     # If local extraction failed and Firecrawl is configured, try it
     if result.error and os.getenv("FIRECRAWL_API_KEY"):
         logger.info(f"Local extraction failed for {url}, trying Firecrawl...")
+        firecrawl_start = time.time()
         result = extract_firecrawl(url)
+        firecrawl_ms = int((time.time() - firecrawl_start) * 1000)
+        logger.info(json.dumps({
+            "event": "firecrawl_complete",
+            "scan_id": scan_id,
+            "url": url,
+            "duration_ms": firecrawl_ms,
+        }))
 
     # Convert ScanResponse -> dict for augmentation
     scan_dict = result.model_dump() if hasattr(result, "model_dump") else result.__dict__
 
-    # Fetch Lighthouse (PSI) results (may return available=False)
+    # Step 2: Fetch Lighthouse (PSI) results
+    psi_start = time.time()
     try:
         lighthouse = fetch_psi(url)
+        psi_ms = int((time.time() - psi_start) * 1000)
+        logger.info(json.dumps({
+            "event": "psi_complete",
+            "scan_id": scan_id,
+            "url": url,
+            "duration_ms": psi_ms,
+            "available": lighthouse.get("available", False),
+        }))
     except Exception as e:
-        logger.warning(f"Lighthouse fetch failed: {e}")
+        psi_ms = int((time.time() - psi_start) * 1000)
+        logger.warning(json.dumps({
+            "event": "psi_failed",
+            "scan_id": scan_id,
+            "url": url,
+            "duration_ms": psi_ms,
+            "error": str(e),
+        }))
         lighthouse = {"source": "psi", "available": False, "error": str(e)}
 
     # Prepare lightweight scan payload subset for CrewAI
@@ -287,17 +433,74 @@ def scan_url(payload: ScanRequest) -> ScanResponse:
         "text_preview": scan_dict.get("text_preview"),
         "schemas": scan_dict.get("schemas", []),
         "metadata_summary": scan_dict.get("metadata_summary", {}),
+        "keyphrases": scan_dict.get("keyphrases", []),
     }
 
-    # Generate insights only if extraction succeeded; otherwise return a friendly placeholder
+    # Step 3: Generate AI insights
+    insights_start = time.time()
     if result.error:
         insights = {
             "visibility_score_explainer": "AI insights unavailable due to extraction error.",
             "top_findings": [],
             "recommendations": [],
         }
+        insights_ms = 0
     else:
-        insights = generate_recommendations(scan_payload_subset, lighthouse)
+        # Generate AI insights with timeout and safe fallback
+        if os.getenv("DISABLE_AI", "0") == "1":
+            logger.info(json.dumps({
+                "event": "ai_disabled",
+                "scan_id": scan_id,
+                "reason": "DISABLE_AI=1",
+            }))
+            insights = {
+                "visibility_score_explainer": "Visibility score based on technical signals. AI disabled.",
+                "top_findings": ["AI analysis disabled - showing rule-based results only"],
+                "recommendations": [],
+            }
+            insights_ms = 0
+        else:
+            try:
+                def _run_gen() -> Dict[str, Any]:
+                    return generate_recommendations(scan_payload_subset, lighthouse, timeout_seconds=15)
+
+                with ThreadPoolExecutor(max_workers=1) as ex:
+                    fut = ex.submit(_run_gen)
+                    insights = fut.result(timeout=20)  # slightly above internal LLM timeout
+                insights_ms = int((time.time() - insights_start) * 1000)
+                logger.info(json.dumps({
+                    "event": "ai_complete",
+                    "scan_id": scan_id,
+                    "url": url,
+                    "duration_ms": insights_ms,
+                }))
+            except FuturesTimeoutError as e:
+                insights_ms = int((time.time() - insights_start) * 1000)
+                logger.warning(json.dumps({
+                    "event": "ai_timeout",
+                    "scan_id": scan_id,
+                    "url": url,
+                    "duration_ms": insights_ms,
+                }))
+                insights = {
+                    "visibility_score_explainer": "Visibility score based on technical signals. AI insights timed out.",
+                    "top_findings": ["AI analysis temporarily unavailable - showing rule-based results only"],
+                    "recommendations": [],
+                }
+            except Exception as e:
+                insights_ms = int((time.time() - insights_start) * 1000)
+                logger.warning(json.dumps({
+                    "event": "ai_failed",
+                    "scan_id": scan_id,
+                    "url": url,
+                    "duration_ms": insights_ms,
+                    "error": str(e),
+                }))
+                insights = {
+                    "visibility_score_explainer": "Visibility score based on technical signals. AI insights unavailable.",
+                    "top_findings": ["AI analysis temporarily unavailable - showing rule-based results only"],
+                    "recommendations": [],
+                }
 
     # Compute a simple visibility score and signals
     signals: List[str] = []
@@ -352,6 +555,15 @@ def scan_url(payload: ScanRequest) -> ScanResponse:
     result.lighthouse = lighthouse
     result.visibility = visibility
     result.insights = insights
+    # Merge granular timings (html_ms, keyphrases_ms) if set earlier
+    _timings_existing = result.timings or {}
+    _timings_existing.update({
+        "extract_ms": extract_ms,
+        "psi_ms": psi_ms,
+        "insights_ms": insights_ms,
+        "total_ms": int((time.time() - start_time) * 1000),
+    })
+    result.timings = _timings_existing
 
     # Rules engine: evaluate YAML-driven checks and merge
     try:
@@ -396,5 +608,27 @@ def scan_url(payload: ScanRequest) -> ScanResponse:
     except Exception as e:
         # Non-fatal: keep response usable even if rules fail
         logger.warning(f"Rules evaluation failed: {e}")
-
-    return result
+    
+        # Final structured logging with total scan time
+        total_ms = int((time.time() - start_time) * 1000)
+        logger.info(json.dumps({
+            "event": "scan_complete",
+            "scan_id": scan_id,
+            "url": url,
+            "extract_ms": extract_ms,
+            "psi_ms": psi_ms,
+            "insights_ms": insights_ms,
+            "total_ms": total_ms,
+            "has_error": bool(result.error),
+        }))
+        
+        # Track metrics for each stage
+        track_scan_stage("/api/v1/scan", "html_fetch", extract_ms / 1000.0)
+        track_scan_stage("/api/v1/scan", "psi", psi_ms / 1000.0)
+        track_scan_stage("/api/v1/scan", "ai", insights_ms / 1000.0)
+        
+        # Mark scan as successful if no errors
+        if not result.error:
+            metrics_ctx["result"] = "success"
+        
+        return result

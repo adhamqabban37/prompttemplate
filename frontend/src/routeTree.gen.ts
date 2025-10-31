@@ -21,6 +21,13 @@ import { Route as LayoutSettingsRouteImport } from './routes/_layout/settings'
 import { Route as LayoutItemsRouteImport } from './routes/_layout/items'
 import { Route as LayoutDashboardRouteImport } from './routes/_layout/dashboard'
 import { Route as LayoutAdminRouteImport } from './routes/_layout/admin'
+import { Route as LayoutPremiumScanIdRouteImport } from './routes/_layout/premium.$scanId'
+import { Route as LayoutPaywallScanIdRouteImport } from './routes/_layout/paywall.$scanId'
+import { Route as LayoutDashboardScanIdRouteImport } from './routes/_layout/dashboard.$scanId'
+import { Route as LayoutPaywallSimpleScanIdRouteImport } from './routes/_layout/paywall.simple.$scanId'
+import { Route as LayoutDashboardTeaserScanIdRouteImport } from './routes/_layout/dashboard.teaser.$scanId'
+import { Route as LayoutDashboardFullScanIdRouteImport } from './routes/_layout/dashboard.full.$scanId'
+import { Route as LayoutDashboardAnalyzingScanIdRouteImport } from './routes/_layout/dashboard.analyzing.$scanId'
 
 const SignupRoute = SignupRouteImport.update({
   id: '/signup',
@@ -81,6 +88,45 @@ const LayoutAdminRoute = LayoutAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => LayoutRoute,
 } as any)
+const LayoutPremiumScanIdRoute = LayoutPremiumScanIdRouteImport.update({
+  id: '/premium/$scanId',
+  path: '/premium/$scanId',
+  getParentRoute: () => LayoutRoute,
+} as any)
+const LayoutPaywallScanIdRoute = LayoutPaywallScanIdRouteImport.update({
+  id: '/paywall/$scanId',
+  path: '/paywall/$scanId',
+  getParentRoute: () => LayoutRoute,
+} as any)
+const LayoutDashboardScanIdRoute = LayoutDashboardScanIdRouteImport.update({
+  id: '/$scanId',
+  path: '/$scanId',
+  getParentRoute: () => LayoutDashboardRoute,
+} as any)
+const LayoutPaywallSimpleScanIdRoute =
+  LayoutPaywallSimpleScanIdRouteImport.update({
+    id: '/paywall/simple/$scanId',
+    path: '/paywall/simple/$scanId',
+    getParentRoute: () => LayoutRoute,
+  } as any)
+const LayoutDashboardTeaserScanIdRoute =
+  LayoutDashboardTeaserScanIdRouteImport.update({
+    id: '/teaser/$scanId',
+    path: '/teaser/$scanId',
+    getParentRoute: () => LayoutDashboardRoute,
+  } as any)
+const LayoutDashboardFullScanIdRoute =
+  LayoutDashboardFullScanIdRouteImport.update({
+    id: '/full/$scanId',
+    path: '/full/$scanId',
+    getParentRoute: () => LayoutDashboardRoute,
+  } as any)
+const LayoutDashboardAnalyzingScanIdRoute =
+  LayoutDashboardAnalyzingScanIdRouteImport.update({
+    id: '/analyzing/$scanId',
+    path: '/analyzing/$scanId',
+    getParentRoute: () => LayoutDashboardRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
@@ -88,12 +134,19 @@ export interface FileRoutesByFullPath {
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
   '/admin': typeof LayoutAdminRoute
-  '/dashboard': typeof LayoutDashboardRoute
+  '/dashboard': typeof LayoutDashboardRouteWithChildren
   '/items': typeof LayoutItemsRoute
   '/settings': typeof LayoutSettingsRoute
   '/success': typeof LayoutSuccessRoute
   '/upgrade': typeof LayoutUpgradeRoute
   '/': typeof LayoutIndexRoute
+  '/dashboard/$scanId': typeof LayoutDashboardScanIdRoute
+  '/paywall/$scanId': typeof LayoutPaywallScanIdRoute
+  '/premium/$scanId': typeof LayoutPremiumScanIdRoute
+  '/dashboard/analyzing/$scanId': typeof LayoutDashboardAnalyzingScanIdRoute
+  '/dashboard/full/$scanId': typeof LayoutDashboardFullScanIdRoute
+  '/dashboard/teaser/$scanId': typeof LayoutDashboardTeaserScanIdRoute
+  '/paywall/simple/$scanId': typeof LayoutPaywallSimpleScanIdRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
@@ -101,12 +154,19 @@ export interface FileRoutesByTo {
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
   '/admin': typeof LayoutAdminRoute
-  '/dashboard': typeof LayoutDashboardRoute
+  '/dashboard': typeof LayoutDashboardRouteWithChildren
   '/items': typeof LayoutItemsRoute
   '/settings': typeof LayoutSettingsRoute
   '/success': typeof LayoutSuccessRoute
   '/upgrade': typeof LayoutUpgradeRoute
   '/': typeof LayoutIndexRoute
+  '/dashboard/$scanId': typeof LayoutDashboardScanIdRoute
+  '/paywall/$scanId': typeof LayoutPaywallScanIdRoute
+  '/premium/$scanId': typeof LayoutPremiumScanIdRoute
+  '/dashboard/analyzing/$scanId': typeof LayoutDashboardAnalyzingScanIdRoute
+  '/dashboard/full/$scanId': typeof LayoutDashboardFullScanIdRoute
+  '/dashboard/teaser/$scanId': typeof LayoutDashboardTeaserScanIdRoute
+  '/paywall/simple/$scanId': typeof LayoutPaywallSimpleScanIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -116,12 +176,19 @@ export interface FileRoutesById {
   '/reset-password': typeof ResetPasswordRoute
   '/signup': typeof SignupRoute
   '/_layout/admin': typeof LayoutAdminRoute
-  '/_layout/dashboard': typeof LayoutDashboardRoute
+  '/_layout/dashboard': typeof LayoutDashboardRouteWithChildren
   '/_layout/items': typeof LayoutItemsRoute
   '/_layout/settings': typeof LayoutSettingsRoute
   '/_layout/success': typeof LayoutSuccessRoute
   '/_layout/upgrade': typeof LayoutUpgradeRoute
   '/_layout/': typeof LayoutIndexRoute
+  '/_layout/dashboard/$scanId': typeof LayoutDashboardScanIdRoute
+  '/_layout/paywall/$scanId': typeof LayoutPaywallScanIdRoute
+  '/_layout/premium/$scanId': typeof LayoutPremiumScanIdRoute
+  '/_layout/dashboard/analyzing/$scanId': typeof LayoutDashboardAnalyzingScanIdRoute
+  '/_layout/dashboard/full/$scanId': typeof LayoutDashboardFullScanIdRoute
+  '/_layout/dashboard/teaser/$scanId': typeof LayoutDashboardTeaserScanIdRoute
+  '/_layout/paywall/simple/$scanId': typeof LayoutPaywallSimpleScanIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -137,6 +204,13 @@ export interface FileRouteTypes {
     | '/success'
     | '/upgrade'
     | '/'
+    | '/dashboard/$scanId'
+    | '/paywall/$scanId'
+    | '/premium/$scanId'
+    | '/dashboard/analyzing/$scanId'
+    | '/dashboard/full/$scanId'
+    | '/dashboard/teaser/$scanId'
+    | '/paywall/simple/$scanId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
@@ -150,6 +224,13 @@ export interface FileRouteTypes {
     | '/success'
     | '/upgrade'
     | '/'
+    | '/dashboard/$scanId'
+    | '/paywall/$scanId'
+    | '/premium/$scanId'
+    | '/dashboard/analyzing/$scanId'
+    | '/dashboard/full/$scanId'
+    | '/dashboard/teaser/$scanId'
+    | '/paywall/simple/$scanId'
   id:
     | '__root__'
     | '/_layout'
@@ -164,6 +245,13 @@ export interface FileRouteTypes {
     | '/_layout/success'
     | '/_layout/upgrade'
     | '/_layout/'
+    | '/_layout/dashboard/$scanId'
+    | '/_layout/paywall/$scanId'
+    | '/_layout/premium/$scanId'
+    | '/_layout/dashboard/analyzing/$scanId'
+    | '/_layout/dashboard/full/$scanId'
+    | '/_layout/dashboard/teaser/$scanId'
+    | '/_layout/paywall/simple/$scanId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -260,27 +348,100 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LayoutAdminRouteImport
       parentRoute: typeof LayoutRoute
     }
+    '/_layout/premium/$scanId': {
+      id: '/_layout/premium/$scanId'
+      path: '/premium/$scanId'
+      fullPath: '/premium/$scanId'
+      preLoaderRoute: typeof LayoutPremiumScanIdRouteImport
+      parentRoute: typeof LayoutRoute
+    }
+    '/_layout/paywall/$scanId': {
+      id: '/_layout/paywall/$scanId'
+      path: '/paywall/$scanId'
+      fullPath: '/paywall/$scanId'
+      preLoaderRoute: typeof LayoutPaywallScanIdRouteImport
+      parentRoute: typeof LayoutRoute
+    }
+    '/_layout/dashboard/$scanId': {
+      id: '/_layout/dashboard/$scanId'
+      path: '/$scanId'
+      fullPath: '/dashboard/$scanId'
+      preLoaderRoute: typeof LayoutDashboardScanIdRouteImport
+      parentRoute: typeof LayoutDashboardRoute
+    }
+    '/_layout/paywall/simple/$scanId': {
+      id: '/_layout/paywall/simple/$scanId'
+      path: '/paywall/simple/$scanId'
+      fullPath: '/paywall/simple/$scanId'
+      preLoaderRoute: typeof LayoutPaywallSimpleScanIdRouteImport
+      parentRoute: typeof LayoutRoute
+    }
+    '/_layout/dashboard/teaser/$scanId': {
+      id: '/_layout/dashboard/teaser/$scanId'
+      path: '/teaser/$scanId'
+      fullPath: '/dashboard/teaser/$scanId'
+      preLoaderRoute: typeof LayoutDashboardTeaserScanIdRouteImport
+      parentRoute: typeof LayoutDashboardRoute
+    }
+    '/_layout/dashboard/full/$scanId': {
+      id: '/_layout/dashboard/full/$scanId'
+      path: '/full/$scanId'
+      fullPath: '/dashboard/full/$scanId'
+      preLoaderRoute: typeof LayoutDashboardFullScanIdRouteImport
+      parentRoute: typeof LayoutDashboardRoute
+    }
+    '/_layout/dashboard/analyzing/$scanId': {
+      id: '/_layout/dashboard/analyzing/$scanId'
+      path: '/analyzing/$scanId'
+      fullPath: '/dashboard/analyzing/$scanId'
+      preLoaderRoute: typeof LayoutDashboardAnalyzingScanIdRouteImport
+      parentRoute: typeof LayoutDashboardRoute
+    }
   }
 }
 
+interface LayoutDashboardRouteChildren {
+  LayoutDashboardScanIdRoute: typeof LayoutDashboardScanIdRoute
+  LayoutDashboardAnalyzingScanIdRoute: typeof LayoutDashboardAnalyzingScanIdRoute
+  LayoutDashboardFullScanIdRoute: typeof LayoutDashboardFullScanIdRoute
+  LayoutDashboardTeaserScanIdRoute: typeof LayoutDashboardTeaserScanIdRoute
+}
+
+const LayoutDashboardRouteChildren: LayoutDashboardRouteChildren = {
+  LayoutDashboardScanIdRoute: LayoutDashboardScanIdRoute,
+  LayoutDashboardAnalyzingScanIdRoute: LayoutDashboardAnalyzingScanIdRoute,
+  LayoutDashboardFullScanIdRoute: LayoutDashboardFullScanIdRoute,
+  LayoutDashboardTeaserScanIdRoute: LayoutDashboardTeaserScanIdRoute,
+}
+
+const LayoutDashboardRouteWithChildren = LayoutDashboardRoute._addFileChildren(
+  LayoutDashboardRouteChildren,
+)
+
 interface LayoutRouteChildren {
   LayoutAdminRoute: typeof LayoutAdminRoute
-  LayoutDashboardRoute: typeof LayoutDashboardRoute
+  LayoutDashboardRoute: typeof LayoutDashboardRouteWithChildren
   LayoutItemsRoute: typeof LayoutItemsRoute
   LayoutSettingsRoute: typeof LayoutSettingsRoute
   LayoutSuccessRoute: typeof LayoutSuccessRoute
   LayoutUpgradeRoute: typeof LayoutUpgradeRoute
   LayoutIndexRoute: typeof LayoutIndexRoute
+  LayoutPaywallScanIdRoute: typeof LayoutPaywallScanIdRoute
+  LayoutPremiumScanIdRoute: typeof LayoutPremiumScanIdRoute
+  LayoutPaywallSimpleScanIdRoute: typeof LayoutPaywallSimpleScanIdRoute
 }
 
 const LayoutRouteChildren: LayoutRouteChildren = {
   LayoutAdminRoute: LayoutAdminRoute,
-  LayoutDashboardRoute: LayoutDashboardRoute,
+  LayoutDashboardRoute: LayoutDashboardRouteWithChildren,
   LayoutItemsRoute: LayoutItemsRoute,
   LayoutSettingsRoute: LayoutSettingsRoute,
   LayoutSuccessRoute: LayoutSuccessRoute,
   LayoutUpgradeRoute: LayoutUpgradeRoute,
   LayoutIndexRoute: LayoutIndexRoute,
+  LayoutPaywallScanIdRoute: LayoutPaywallScanIdRoute,
+  LayoutPremiumScanIdRoute: LayoutPremiumScanIdRoute,
+  LayoutPaywallSimpleScanIdRoute: LayoutPaywallSimpleScanIdRoute,
 }
 
 const LayoutRouteWithChildren =

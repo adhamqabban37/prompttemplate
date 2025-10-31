@@ -1,0 +1,547 @@
+{
+    "/api/v1/login/access-token":  {
+                                       "post":  {
+                                                    "tags":  [
+                                                                 "login"
+                                                             ],
+                                                    "summary":  "Login Access Token",
+                                                    "description":  "OAuth2 compatible token login, get an access token for future requests",
+                                                    "operationId":  "login-login_access_token",
+                                                    "requestBody":  {
+                                                                        "content":  "@{application/x-www-form-urlencoded=}",
+                                                                        "required":  true
+                                                                    },
+                                                    "responses":  {
+                                                                      "200":  "@{description=Successful Response; content=}",
+                                                                      "422":  "@{description=Validation Error; content=}"
+                                                                  }
+                                                }
+                                   },
+    "/api/v1/login/test-token":  {
+                                     "post":  {
+                                                  "tags":  [
+                                                               "login"
+                                                           ],
+                                                  "summary":  "Test Token",
+                                                  "description":  "Test access token",
+                                                  "operationId":  "login-test_token",
+                                                  "responses":  {
+                                                                    "200":  "@{description=Successful Response; content=}"
+                                                                },
+                                                  "security":  [
+                                                                   "@{OAuth2PasswordBearer=System.Object[]}"
+                                                               ]
+                                              }
+                                 },
+    "/api/v1/password-recovery/{email}":  {
+                                              "post":  {
+                                                           "tags":  [
+                                                                        "login"
+                                                                    ],
+                                                           "summary":  "Recover Password",
+                                                           "description":  "Password Recovery",
+                                                           "operationId":  "login-recover_password",
+                                                           "parameters":  [
+                                                                              "@{name=email; in=path; required=True; schema=}"
+                                                                          ],
+                                                           "responses":  {
+                                                                             "200":  "@{description=Successful Response; content=}",
+                                                                             "422":  "@{description=Validation Error; content=}"
+                                                                         }
+                                                       }
+                                          },
+    "/api/v1/reset-password/":  {
+                                    "post":  {
+                                                 "tags":  [
+                                                              "login"
+                                                          ],
+                                                 "summary":  "Reset Password",
+                                                 "description":  "Reset password",
+                                                 "operationId":  "login-reset_password",
+                                                 "requestBody":  {
+                                                                     "content":  "@{application/json=}",
+                                                                     "required":  true
+                                                                 },
+                                                 "responses":  {
+                                                                   "200":  "@{description=Successful Response; content=}",
+                                                                   "422":  "@{description=Validation Error; content=}"
+                                                               }
+                                             }
+                                },
+    "/api/v1/password-recovery-html-content/{email}":  {
+                                                           "post":  {
+                                                                        "tags":  [
+                                                                                     "login"
+                                                                                 ],
+                                                                        "summary":  "Recover Password Html Content",
+                                                                        "description":  "HTML Content for Password Recovery",
+                                                                        "operationId":  "login-recover_password_html_content",
+                                                                        "security":  [
+                                                                                         "@{OAuth2PasswordBearer=System.Object[]}"
+                                                                                     ],
+                                                                        "parameters":  [
+                                                                                           "@{name=email; in=path; required=True; schema=}"
+                                                                                       ],
+                                                                        "responses":  {
+                                                                                          "200":  "@{description=Successful Response; content=}",
+                                                                                          "422":  "@{description=Validation Error; content=}"
+                                                                                      }
+                                                                    }
+                                                       },
+    "/api/v1/users/":  {
+                           "get":  {
+                                       "tags":  [
+                                                    "users"
+                                                ],
+                                       "summary":  "Read Users",
+                                       "description":  "Retrieve users.",
+                                       "operationId":  "users-read_users",
+                                       "security":  [
+                                                        "@{OAuth2PasswordBearer=System.Object[]}"
+                                                    ],
+                                       "parameters":  [
+                                                          "@{name=skip; in=query; required=False; schema=}",
+                                                          "@{name=limit; in=query; required=False; schema=}"
+                                                      ],
+                                       "responses":  {
+                                                         "200":  "@{description=Successful Response; content=}",
+                                                         "422":  "@{description=Validation Error; content=}"
+                                                     }
+                                   },
+                           "post":  {
+                                        "tags":  [
+                                                     "users"
+                                                 ],
+                                        "summary":  "Create User",
+                                        "description":  "Create new user.",
+                                        "operationId":  "users-create_user",
+                                        "security":  [
+                                                         "@{OAuth2PasswordBearer=System.Object[]}"
+                                                     ],
+                                        "requestBody":  {
+                                                            "required":  true,
+                                                            "content":  "@{application/json=}"
+                                                        },
+                                        "responses":  {
+                                                          "200":  "@{description=Successful Response; content=}",
+                                                          "422":  "@{description=Validation Error; content=}"
+                                                      }
+                                    }
+                       },
+    "/api/v1/users/me":  {
+                             "get":  {
+                                         "tags":  [
+                                                      "users"
+                                                  ],
+                                         "summary":  "Read User Me",
+                                         "description":  "Get current user.",
+                                         "operationId":  "users-read_user_me",
+                                         "responses":  {
+                                                           "200":  "@{description=Successful Response; content=}"
+                                                       },
+                                         "security":  [
+                                                          "@{OAuth2PasswordBearer=System.Object[]}"
+                                                      ]
+                                     },
+                             "delete":  {
+                                            "tags":  [
+                                                         "users"
+                                                     ],
+                                            "summary":  "Delete User Me",
+                                            "description":  "Delete own user.",
+                                            "operationId":  "users-delete_user_me",
+                                            "responses":  {
+                                                              "200":  "@{description=Successful Response; content=}"
+                                                          },
+                                            "security":  [
+                                                             "@{OAuth2PasswordBearer=System.Object[]}"
+                                                         ]
+                                        },
+                             "patch":  {
+                                           "tags":  [
+                                                        "users"
+                                                    ],
+                                           "summary":  "Update User Me",
+                                           "description":  "Update own user.",
+                                           "operationId":  "users-update_user_me",
+                                           "requestBody":  {
+                                                               "content":  "@{application/json=}",
+                                                               "required":  true
+                                                           },
+                                           "responses":  {
+                                                             "200":  "@{description=Successful Response; content=}",
+                                                             "422":  "@{description=Validation Error; content=}"
+                                                         },
+                                           "security":  [
+                                                            "@{OAuth2PasswordBearer=System.Object[]}"
+                                                        ]
+                                       }
+                         },
+    "/api/v1/users/me/password":  {
+                                      "patch":  {
+                                                    "tags":  [
+                                                                 "users"
+                                                             ],
+                                                    "summary":  "Update Password Me",
+                                                    "description":  "Update own password.",
+                                                    "operationId":  "users-update_password_me",
+                                                    "requestBody":  {
+                                                                        "content":  "@{application/json=}",
+                                                                        "required":  true
+                                                                    },
+                                                    "responses":  {
+                                                                      "200":  "@{description=Successful Response; content=}",
+                                                                      "422":  "@{description=Validation Error; content=}"
+                                                                  },
+                                                    "security":  [
+                                                                     "@{OAuth2PasswordBearer=System.Object[]}"
+                                                                 ]
+                                                }
+                                  },
+    "/api/v1/users/signup":  {
+                                 "post":  {
+                                              "tags":  [
+                                                           "users"
+                                                       ],
+                                              "summary":  "Register User",
+                                              "description":  "Create new user without the need to be logged in.",
+                                              "operationId":  "users-register_user",
+                                              "requestBody":  {
+                                                                  "content":  "@{application/json=}",
+                                                                  "required":  true
+                                                              },
+                                              "responses":  {
+                                                                "200":  "@{description=Successful Response; content=}",
+                                                                "422":  "@{description=Validation Error; content=}"
+                                                            }
+                                          }
+                             },
+    "/api/v1/users/{user_id}":  {
+                                    "get":  {
+                                                "tags":  [
+                                                             "users"
+                                                         ],
+                                                "summary":  "Read User By Id",
+                                                "description":  "Get a specific user by id.",
+                                                "operationId":  "users-read_user_by_id",
+                                                "security":  [
+                                                                 "@{OAuth2PasswordBearer=System.Object[]}"
+                                                             ],
+                                                "parameters":  [
+                                                                   "@{name=user_id; in=path; required=True; schema=}"
+                                                               ],
+                                                "responses":  {
+                                                                  "200":  "@{description=Successful Response; content=}",
+                                                                  "422":  "@{description=Validation Error; content=}"
+                                                              }
+                                            },
+                                    "patch":  {
+                                                  "tags":  [
+                                                               "users"
+                                                           ],
+                                                  "summary":  "Update User",
+                                                  "description":  "Update a user.",
+                                                  "operationId":  "users-update_user",
+                                                  "security":  [
+                                                                   "@{OAuth2PasswordBearer=System.Object[]}"
+                                                               ],
+                                                  "parameters":  [
+                                                                     "@{name=user_id; in=path; required=True; schema=}"
+                                                                 ],
+                                                  "requestBody":  {
+                                                                      "required":  true,
+                                                                      "content":  "@{application/json=}"
+                                                                  },
+                                                  "responses":  {
+                                                                    "200":  "@{description=Successful Response; content=}",
+                                                                    "422":  "@{description=Validation Error; content=}"
+                                                                }
+                                              },
+                                    "delete":  {
+                                                   "tags":  [
+                                                                "users"
+                                                            ],
+                                                   "summary":  "Delete User",
+                                                   "description":  "Delete a user.",
+                                                   "operationId":  "users-delete_user",
+                                                   "security":  [
+                                                                    "@{OAuth2PasswordBearer=System.Object[]}"
+                                                                ],
+                                                   "parameters":  [
+                                                                      "@{name=user_id; in=path; required=True; schema=}"
+                                                                  ],
+                                                   "responses":  {
+                                                                     "200":  "@{description=Successful Response; content=}",
+                                                                     "422":  "@{description=Validation Error; content=}"
+                                                                 }
+                                               }
+                                },
+    "/api/v1/utils/test-email/":  {
+                                      "post":  {
+                                                   "tags":  [
+                                                                "utils"
+                                                            ],
+                                                   "summary":  "Test Email",
+                                                   "description":  "Test emails.",
+                                                   "operationId":  "utils-test_email",
+                                                   "security":  [
+                                                                    "@{OAuth2PasswordBearer=System.Object[]}"
+                                                                ],
+                                                   "parameters":  [
+                                                                      "@{name=email_to; in=query; required=True; schema=}"
+                                                                  ],
+                                                   "responses":  {
+                                                                     "201":  "@{description=Successful Response; content=}",
+                                                                     "422":  "@{description=Validation Error; content=}"
+                                                                 }
+                                               }
+                                  },
+    "/api/v1/utils/health-check/":  {
+                                        "get":  {
+                                                    "tags":  [
+                                                                 "utils"
+                                                             ],
+                                                    "summary":  "Health Check",
+                                                    "operationId":  "utils-health_check",
+                                                    "responses":  {
+                                                                      "200":  "@{description=Successful Response; content=}"
+                                                                  }
+                                                }
+                                    },
+    "/api/v1/analyze/":  {
+                             "post":  {
+                                          "tags":  [
+                                                       "analyze"
+                                                   ],
+                                          "summary":  "Analyze",
+                                          "operationId":  "analyze-analyze",
+                                          "requestBody":  {
+                                                              "content":  "@{application/json=}",
+                                                              "required":  true
+                                                          },
+                                          "responses":  {
+                                                            "200":  "@{description=Successful Response; content=}",
+                                                            "422":  "@{description=Validation Error; content=}"
+                                                        }
+                                      }
+                         },
+    "/api/v1/scan/":  {
+                          "get":  {
+                                      "tags":  [
+                                                   "scan"
+                                               ],
+                                      "summary":  "Scan Url Get",
+                                      "description":  "GET variant for scanning, to support `?url=` usage.",
+                                      "operationId":  "scan-scan_url_get",
+                                      "parameters":  [
+                                                         "@{name=url; in=query; required=True; schema=}"
+                                                     ],
+                                      "responses":  {
+                                                        "200":  "@{description=Successful Response; content=}",
+                                                        "422":  "@{description=Validation Error; content=}"
+                                                    }
+                                  },
+                          "post":  {
+                                       "tags":  [
+                                                    "scan"
+                                                ],
+                                       "summary":  "Scan Url",
+                                       "description":  "Scan a URL and extract metadata.\nUses local extraction (trafilatura + extruct) by default.\nFalls back to Firecrawl API if FIRECRAWL_API_KEY is set.",
+                                       "operationId":  "scan-scan_url",
+                                       "requestBody":  {
+                                                           "required":  true,
+                                                           "content":  "@{application/json=}"
+                                                       },
+                                       "responses":  {
+                                                         "200":  "@{description=Successful Response; content=}",
+                                                         "422":  "@{description=Validation Error; content=}"
+                                                     }
+                                   }
+                      },
+    "/api/v1/rules/":  {
+                           "get":  {
+                                       "tags":  [
+                                                    "rules"
+                                                ],
+                                       "summary":  "Get Rules Status",
+                                       "operationId":  "rules-get_rules_status",
+                                       "responses":  {
+                                                         "200":  "@{description=Successful Response; content=}"
+                                                     }
+                                   }
+                       },
+    "/api/v1/health/":  {
+                            "get":  {
+                                        "tags":  [
+                                                     "health"
+                                                 ],
+                                        "summary":  "Health",
+                                        "description":  "Basic health check endpoint.",
+                                        "operationId":  "health-health",
+                                        "responses":  {
+                                                          "200":  "@{description=Successful Response; content=}"
+                                                      }
+                                    }
+                        },
+    "/api/v1/health/llm":  {
+                               "get":  {
+                                           "tags":  [
+                                                        "health"
+                                                    ],
+                                           "summary":  "Llm Health",
+                                           "description":  "Calls the local LLM with a trivial prompt to verify connectivity.\n\nReturns the raw string to prove end-to-end local inference without cloud keys.",
+                                           "operationId":  "health-llm_health",
+                                           "responses":  {
+                                                             "200":  "@{description=Successful Response; content=}"
+                                                         }
+                                       }
+                           },
+    "/api/v1/warmup/keybert":  {
+                                   "post":  {
+                                                "tags":  [
+                                                             "warmup"
+                                                         ],
+                                                "summary":  "Warmup Keybert",
+                                                "description":  "Preload the sentence-transformers model and return duration.",
+                                                "operationId":  "warmup-warmup_keybert",
+                                                "responses":  {
+                                                                  "200":  "@{description=Successful Response; content=}"
+                                                              }
+                                            }
+                               },
+    "/api/v1/warmup/psi":  {
+                               "post":  {
+                                            "tags":  [
+                                                         "warmup"
+                                                     ],
+                                            "summary":  "Warmup Psi",
+                                            "description":  "Call PSI for a URL to warm cache/dedup/circuit-breaker paths.",
+                                            "operationId":  "warmup-warmup_psi",
+                                            "parameters":  [
+                                                               "@{name=url; in=query; required=True; schema=}"
+                                                           ],
+                                            "responses":  {
+                                                              "200":  "@{description=Successful Response; content=}",
+                                                              "422":  "@{description=Validation Error; content=}"
+                                                          }
+                                        }
+                           },
+    "/api/v1/items/":  {
+                           "get":  {
+                                       "tags":  [
+                                                    "items"
+                                                ],
+                                       "summary":  "Read Items",
+                                       "description":  "Retrieve items.",
+                                       "operationId":  "items-read_items",
+                                       "security":  [
+                                                        "@{OAuth2PasswordBearer=System.Object[]}"
+                                                    ],
+                                       "parameters":  [
+                                                          "@{name=skip; in=query; required=False; schema=}",
+                                                          "@{name=limit; in=query; required=False; schema=}"
+                                                      ],
+                                       "responses":  {
+                                                         "200":  "@{description=Successful Response; content=}",
+                                                         "422":  "@{description=Validation Error; content=}"
+                                                     }
+                                   },
+                           "post":  {
+                                        "tags":  [
+                                                     "items"
+                                                 ],
+                                        "summary":  "Create Item",
+                                        "description":  "Create new item.",
+                                        "operationId":  "items-create_item",
+                                        "security":  [
+                                                         "@{OAuth2PasswordBearer=System.Object[]}"
+                                                     ],
+                                        "requestBody":  {
+                                                            "required":  true,
+                                                            "content":  "@{application/json=}"
+                                                        },
+                                        "responses":  {
+                                                          "200":  "@{description=Successful Response; content=}",
+                                                          "422":  "@{description=Validation Error; content=}"
+                                                      }
+                                    }
+                       },
+    "/api/v1/items/{id}":  {
+                               "get":  {
+                                           "tags":  [
+                                                        "items"
+                                                    ],
+                                           "summary":  "Read Item",
+                                           "description":  "Get item by ID.",
+                                           "operationId":  "items-read_item",
+                                           "security":  [
+                                                            "@{OAuth2PasswordBearer=System.Object[]}"
+                                                        ],
+                                           "parameters":  [
+                                                              "@{name=id; in=path; required=True; schema=}"
+                                                          ],
+                                           "responses":  {
+                                                             "200":  "@{description=Successful Response; content=}",
+                                                             "422":  "@{description=Validation Error; content=}"
+                                                         }
+                                       },
+                               "put":  {
+                                           "tags":  [
+                                                        "items"
+                                                    ],
+                                           "summary":  "Update Item",
+                                           "description":  "Update an item.",
+                                           "operationId":  "items-update_item",
+                                           "security":  [
+                                                            "@{OAuth2PasswordBearer=System.Object[]}"
+                                                        ],
+                                           "parameters":  [
+                                                              "@{name=id; in=path; required=True; schema=}"
+                                                          ],
+                                           "requestBody":  {
+                                                               "required":  true,
+                                                               "content":  "@{application/json=}"
+                                                           },
+                                           "responses":  {
+                                                             "200":  "@{description=Successful Response; content=}",
+                                                             "422":  "@{description=Validation Error; content=}"
+                                                         }
+                                       },
+                               "delete":  {
+                                              "tags":  [
+                                                           "items"
+                                                       ],
+                                              "summary":  "Delete Item",
+                                              "description":  "Delete an item.",
+                                              "operationId":  "items-delete_item",
+                                              "security":  [
+                                                               "@{OAuth2PasswordBearer=System.Object[]}"
+                                                           ],
+                                              "parameters":  [
+                                                                 "@{name=id; in=path; required=True; schema=}"
+                                                             ],
+                                              "responses":  {
+                                                                "200":  "@{description=Successful Response; content=}",
+                                                                "422":  "@{description=Validation Error; content=}"
+                                                            }
+                                          }
+                           },
+    "/api/v1/private/users/":  {
+                                   "post":  {
+                                                "tags":  [
+                                                             "private"
+                                                         ],
+                                                "summary":  "Create User",
+                                                "description":  "Create a new user.",
+                                                "operationId":  "private-create_user",
+                                                "requestBody":  {
+                                                                    "content":  "@{application/json=}",
+                                                                    "required":  true
+                                                                },
+                                                "responses":  {
+                                                                  "200":  "@{description=Successful Response; content=}",
+                                                                  "422":  "@{description=Validation Error; content=}"
+                                                              }
+                                            }
+                               }
+}

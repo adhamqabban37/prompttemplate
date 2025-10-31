@@ -34,9 +34,14 @@ class Settings(BaseSettings):
     SECRET_KEY: str = secrets.token_urlsafe(32)
     # 60 minutes * 24 hours * 8 days = 8 days
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8
-    FRONTEND_HOST: str = "http://localhost:5173"
+    # Optional public frontend URL (e.g., https://app.example.com)
+    FRONTEND_HOST: str | None = None
     ENVIRONMENT: Literal["local", "staging", "production"] = "local"
+    
+    # Force strict startup behavior (exit if DB unavailable) even in development
+    FORCE_STRICT_STARTUP: bool = False
 
+    # Optional comma-separated list or JSON list of extra CORS origins via env
     BACKEND_CORS_ORIGINS: Annotated[
         list[AnyUrl] | str, BeforeValidator(parse_cors)
     ] = []
@@ -44,9 +49,28 @@ class Settings(BaseSettings):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def all_cors_origins(self) -> list[str]:
-        return [str(origin).rstrip("/") for origin in self.BACKEND_CORS_ORIGINS] + [
-            self.FRONTEND_HOST
-        ]
+        """Return the finalized list of allowed CORS origins.
+
+        Always include localhost dev origins on :5174, optionally include FRONTEND_HOST
+        (production/staging), and merge any extra origins from BACKEND_CORS_ORIGINS.
+        Trailing slashes are stripped; order is stable.
+        """
+        dev_origins = {"http://localhost:5174", "http://127.0.0.1:5174"}
+
+        extras: set[str] = set()
+        for o in (self.BACKEND_CORS_ORIGINS or []):
+            try:
+                extras.add(str(o).rstrip("/"))
+            except Exception:
+                continue
+
+        prod_host: set[str] = set()
+        if self.FRONTEND_HOST:
+            prod_host.add(str(self.FRONTEND_HOST).rstrip("/"))
+
+        # Merge and return as a stable list
+        merged = list(sorted(dev_origins | extras | prod_host))
+        return merged
 
     PROJECT_NAME: str
     SENTRY_DSN: HttpUrl | None = None
@@ -93,6 +117,15 @@ class Settings(BaseSettings):
     EMAIL_TEST_USER: EmailStr = "test@example.com"
     FIRST_SUPERUSER: EmailStr
     FIRST_SUPERUSER_PASSWORD: str
+    
+    # PSI cache and circuit breaker settings
+    PSI_CACHE_TTL_SECONDS: int = 43200  # 12 hours
+    SCAN_MAX_CONCURRENCY: int = 3
+    SCAN_JOB_TTL_SECONDS: int = 120
+    
+    # CrewAI/LLM settings
+    CREW_AI_ENABLED: bool = False
+    LLM_TIMEOUT_SECONDS: int = 15
 
     def _check_default_secret(self, var_name: str, value: str | None) -> None:
         if value == "changethis":
@@ -116,4 +149,11 @@ class Settings(BaseSettings):
         return self
 
 
+import logging
+import os
+
+logging.basicConfig(level=logging.INFO)
+_logger = logging.getLogger(__name__)
+_logger.info(f"Loading settings from env. POSTGRES_USER env var = {os.getenv('POSTGRES_USER')}")
 settings = Settings()  # type: ignore
+_logger.info(f"Settings loaded. POSTGRES_USER = {settings.POSTGRES_USER}")
