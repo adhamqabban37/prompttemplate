@@ -220,6 +220,7 @@ dependencies = [
     { name = "rq" },
     { name = "sentry-sdk", extra = ["fastapi"] },
     { name = "sqlmodel" },
+    { name = "stripe" },
     { name = "tenacity" },
     { name = "trafilatura" },
     { name = "w3lib" },
@@ -275,6 +276,7 @@ requires-dist = [
     { name = "sentence-transformers", marker = "extra == 'ai'", specifier = ">=2.2.0,<3.0.0" },
     { name = "sentry-sdk", extras = ["fastapi"], specifier = ">=1.40.6,<2.0.0" },
     { name = "sqlmodel", specifier = ">=0.0.21,<1.0.0" },
+    { name = "stripe", specifier = ">=5.0.0,<6.0.0" },
     { name = "tenacity", specifier = ">=8.2.3,<9.0.0" },
     { name = "trafilatura", specifier = ">=1.6.0,<2.0.0" },
     { name = "w3lib", specifier = ">=2.1.0,<3.0.0" },
@@ -4330,7 +4332,7 @@ wheels = [
 
 [[package]]
 name = "requests"
-version = "2.32.3"
+version = "2.32.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "certifi" },
@@ -4338,9 +4340,9 @@ dependencies = [
     { name = "idna" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/63/70/2bf7780ad2d390a8d301ad0b550f1581eadbd9a20f896afe06353c2a2913/requests-2.32.3.tar.gz", hash = "sha256:55365417734eb18255590a9ff9eb97e9e1da868d4ccd6402399eaf68af20a760", size = 131218, upload-time = "2024-05-29T15:37:49.536Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c9/74/b3ff8e6c8446842c3f5c837e9c3dfcfe2018ea6ecef224c710c85ef728f4/requests-2.32.5.tar.gz", hash = "sha256:dbba0bac56e100853db0ea71b82b4dfd5fe2bf6d3754a8893c3af500cec7d7cf", size = 134517, upload-time = "2025-08-18T20:46:02.573Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f9/9b/335f9764261e915ed497fcdeb11df5dfd6f7bf257d4a6a2a686d80da4d54/requests-2.32.3-py3-none-any.whl", hash = "sha256:70761cfe03c773ceb22aa2f671b4757976145175cdfca038c02654d061d6dcc6", size = 64928, upload-time = "2024-05-29T15:37:47.027Z" },
+    { url = "https://files.pythonhosted.org/packages/1e/db/4254e3eabe8020b458f1a747140d32277ec7a271daf1d235b70dc0b4e6e3/requests-2.32.5-py3-none-any.whl", hash = "sha256:2462f94637a34fd532264295e186976db0f5d453d1cdd31473c85a6a161affb6", size = 64738, upload-time = "2025-08-18T20:46:00.542Z" },
 ]
 
 [[package]]
@@ -4914,6 +4916,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/42/b4/e25c3b688ef703d85e55017c6edd0cbf38e5770ab748234363d54ff0251a/starlette-0.38.6.tar.gz", hash = "sha256:863a1588f5574e70a821dadefb41e4881ea451a47a3cd1b4df359d4ffefe5ead", size = 2569491, upload-time = "2024-09-22T17:01:45.422Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b7/9c/93f7bc03ff03199074e81974cc148908ead60dcf189f68ba1761a0ee35cf/starlette-0.38.6-py3-none-any.whl", hash = "sha256:4517a1409e2e73ee4951214ba012052b9e16f60e90d73cfb06192c19203bbb05", size = 71451, upload-time = "2024-09-22T17:01:43.076Z" },
+]
+
+[[package]]
+name = "stripe"
+version = "5.5.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3f/5b/7650e8bde910ba613ee36f78c196298634452c4704b03f1145660a289ad8/stripe-5.5.0.tar.gz", hash = "sha256:04a9732b37a46228ecf0e496163a3edd93596b0e6200029fbc48911638627e19", size = 270144, upload-time = "2023-07-13T22:18:42.209Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c1/aa/8524b1959835d1dc7d621a4dbbc2c2658073ba4c0caa82feaa7c8ce00c74/stripe-5.5.0-py2.py3-none-any.whl", hash = "sha256:b4947da66dbb3de8969004ba6398f9a019c6b1b3ffe6aa88d5b07ac560a52b28", size = 256059, upload-time = "2023-07-13T22:18:38.274Z" },
 ]
 
 [[package]]
